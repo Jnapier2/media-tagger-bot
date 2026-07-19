@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Jnapier2/media-tagger-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/Jnapier2/media-tagger-bot/actions/workflows/ci.yml)
 
-Local-first metadata identification, tagging, and renaming for audio and music-video libraries, with dry-run review and fail-closed mutation controls.
+MediaTaggerBot is a local-first workflow for standardizing audio and music-video libraries when a wrong match is more costly than an unresolved file.
 
 MediaTaggerBot turns inconsistent local filenames and tags into a predictable library structure:
 
@@ -11,7 +11,7 @@ Artist - Title - Genre.ext
 Artist - Title - Genre - Subgenre.ext
 ```
 
-The project is Windows-first and built for collections where a wrong match is more costly than an unresolved file. It combines public metadata sources with local evidence, records why a match was accepted, and separates inspection from mutation.
+Built for Windows, it combines public metadata with local evidence, records why each match was accepted, and places dry-run review and conservative apply gates between identification and file mutation.
 
 ## Workflow safeguards
 
