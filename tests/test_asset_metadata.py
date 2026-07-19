@@ -110,7 +110,7 @@ def test_id3_writer_adds_asset_metadata(tmp_path: Path):
     assert str(tags["TXXX:MediaTaggerBot Metadata Schema"]) == ASSET_METADATA_SCHEMA
 
 
-def test_discovery_keeps_multiple_run_reports(tmp_path: Path):
+def test_discovery_keeps_multiple_generated_reports(tmp_path: Path):
     from mediataggerbot.asset_metadata import discover_run_assets
     project = tmp_path / "project"
     for name in ["config", "exports", "logs", "diagnostics", "state", "temp"]:

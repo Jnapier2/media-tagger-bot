@@ -64,7 +64,7 @@ def media(path: Path) -> MediaFile:
     )
 
 
-def test_source_guard_detects_change_after_scan(tmp_path: Path):
+def test_source_change_guard_detects_change_after_scan(tmp_path: Path):
     path = tmp_path / "song.mp3"
     path.write_bytes(b"first")
     item = media(path)

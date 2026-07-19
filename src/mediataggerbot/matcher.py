@@ -990,10 +990,6 @@ def extract_acoustid_artist_components(recording: dict[str, Any]) -> list[dict[s
     return components
 
 
-def extract_acoustid_artist(recording: dict[str, Any]) -> str | None:
-    return render_artist_components(extract_acoustid_artist_components(recording), canonical_entity=True)
-
-
 def parse_lastfm_track_info(payload: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(payload, dict) or not isinstance(payload.get("track"), dict):
         return None

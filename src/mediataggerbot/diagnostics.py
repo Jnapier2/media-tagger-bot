@@ -325,12 +325,10 @@ def _write_diagnostics_export_primary(
 
         doc_priorities = {
             "README.md": 1,
-            "CHANGELOG.md": 2,
             "SECURITY.md": 3,
             "LICENSE.md": 4,
             "docs/OPERATIONS.md": 30,
             "docs/API_NOTES.md": 31,
-            "docs/VERIFICATION.md": 32,
         }
         for name, priority in doc_priorities.items():
             project_file = config.project_root / Path(name)

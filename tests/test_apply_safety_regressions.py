@@ -102,7 +102,7 @@ def test_title_only_text_search_is_never_apply_safe(tmp_path: Path):
     assert decide_apply("apply-safe", result, cfg(), mapped_genre())[0] is False
 
 
-def test_prior_v052_text_identity_does_not_trust_embedded_mbid_or_fast_skip(tmp_path: Path):
+def test_prior_text_search_identity_does_not_trust_embedded_mbid_or_fast_skip(tmp_path: Path):
     item = media(tmp_path, "Steelheart - All Your Love - Rock.mp3")
     item.existing_artist = "Steelheart"
     item.existing_title = "All Your Love"

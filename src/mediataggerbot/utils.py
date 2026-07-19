@@ -164,12 +164,6 @@ def _fsync_directory_best_effort(directory: Path) -> None:
         os.close(fd)
 
 
-def append_jsonl(path: Path, data: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8", newline="\n") as f:
-        f.write(json.dumps(data, ensure_ascii=False, default=str) + "\n")
-
-
 def sanitize_component(value: str, slash_replacement: str = "-", collapse_whitespace: bool = True) -> str:
     value = str(value or "").strip()
     value = value.replace("/", slash_replacement).replace("\\", slash_replacement)
@@ -193,21 +187,6 @@ def truncate_filename_stem(stem: str, extension: str, max_length: int) -> str:
         return stem
     allowed = max(20, max_length - len(extension))
     return stem[:allowed].rstrip(" .")
-
-
-def ensure_unique_path(target: Path, style: str = "space_parentheses_number") -> Path:
-    if not target.exists():
-        return target
-    if style != "space_parentheses_number":
-        raise RuntimeError(f"Unsupported collision_suffix_style: {style}")
-    parent = target.parent
-    stem = target.stem
-    suffix = target.suffix
-    for i in range(2, 10000):
-        candidate = parent / f"{stem} ({i}){suffix}"
-        if not candidate.exists():
-            return candidate
-    raise RuntimeError(f"Could not find available collision-free filename for {target}")
 
 
 def compact_list(values: Iterable[Any], limit: int = 12) -> list[str]:

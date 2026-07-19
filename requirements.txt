@@ -1,4 +1,0 @@
-# Developer convenience. The Windows launcher uses requirements.lock.txt with
-# exact hashes; this shorter file supports editable development installs.
-requests==2.32.5
-mutagen==1.47.0

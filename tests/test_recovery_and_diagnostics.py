@@ -265,7 +265,7 @@ def test_diagnostics_primary_failure_produces_integrity_checked_minimal_fallback
         assert payload["media_files_mutated"] is False
 
 
-def test_run_exit_report_can_avoid_overwriting_active_last_exit(tmp_path: Path) -> None:
+def test_terminal_report_does_not_overwrite_active_last_exit(tmp_path: Path) -> None:
     cfg = isolated_config(tmp_path)
     sentinel = {"run_id": "active-run", "status": "running"}
     (cfg.state_dir / "last_run_exit.json").write_text(json.dumps(sentinel), encoding="utf-8")

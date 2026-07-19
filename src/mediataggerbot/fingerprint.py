@@ -13,10 +13,6 @@ from .models import MediaFile
 from .utils import run_command, which
 
 
-def fpcalc_available() -> bool:
-    return which("fpcalc") is not None
-
-
 @lru_cache(maxsize=1)
 def ffmpeg_chromaprint_available() -> bool:
     """Return whether the installed FFmpeg exposes the Chromaprint muxer.

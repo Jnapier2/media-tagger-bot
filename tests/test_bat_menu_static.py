@@ -29,7 +29,7 @@ def test_bat_uses_environment_transport_not_root_argv_quoting() -> None:
     lowered = text.casefold()
     assert "powershell.exe" not in lowered
     assert "-executionpolicy" not in lowered
-    assert "launch_mediataggerbot.ps1" in lowered  # detection only
+    assert "legacy powershell launcher detected" in lowered
 
 
 def test_bat_menu_modes_match_python_modes() -> None:
@@ -43,8 +43,8 @@ def test_bat_menu_modes_match_python_modes() -> None:
         "diagnostics",
         "rollback",
         "set-root",
-        "repair",
         "validate-config",
+        "repair",
         "request-stop",
     ]:
         assert mode in text

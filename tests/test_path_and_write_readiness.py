@@ -109,7 +109,7 @@ def test_apply_readiness_blocks_permission_failure(tmp_path: Path, monkeypatch):
     assert readiness_blocks_apply(result) is True
 
 
-def test_json_cache_exposes_optimize_telemetry(tmp_path: Path):
+def test_json_cache_reports_optimize_telemetry(tmp_path: Path):
     with JsonCache(tmp_path / "cache.sqlite3") as cache:
         cache.set("ns", "key", {"ok": True})
         snapshot = cache.snapshot()

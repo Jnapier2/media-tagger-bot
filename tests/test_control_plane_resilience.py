@@ -36,7 +36,7 @@ def isolated_config(tmp_path: Path) -> AppConfig:
     return cfg
 
 
-def test_inventory_cache_reuses_unchanged_scan_and_invalidates_changed_file(
+def test_inventory_cache_reuses_unchanged_scan_and_invalidates_source_changes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cfg = isolated_config(tmp_path)

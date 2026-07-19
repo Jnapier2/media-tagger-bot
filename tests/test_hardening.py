@@ -251,7 +251,7 @@ def test_single_instance_detects_pid_reuse_using_process_start_time(
     assert same_owner["reason"] == "owner_pid_and_start_time_match"
 
 
-def test_release_version_is_consistent_across_launcher_and_package() -> None:
+def test_version_is_consistent_across_launcher_and_package() -> None:
     bat = (PROJECT_ROOT / "Start_MediaTaggerBot.bat").read_text(encoding="utf-8")
     pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert f"MediaTaggerBot v{__version__}" in bat

@@ -308,21 +308,6 @@ class LastFmClient(ApiClientBase):
     def enabled(self) -> bool:
         return bool(self.api_key)
 
-    def track_get_top_tags(self, artist: str, title: str) -> list[str]:
-        if not self.enabled or not artist or not title:
-            return []
-        params = {"method": "track.getTopTags", "artist": artist, "track": title, "api_key": self.api_key, "format": "json"}
-        payload = self.request_json("GET", self.BASE, params=params)
-        tags: list[str] = []
-        if isinstance(payload, dict):
-            tag_node = payload.get("toptags", {}).get("tag", []) if isinstance(payload.get("toptags"), dict) else []
-            if isinstance(tag_node, dict):
-                tag_node = [tag_node]
-            for tag in tag_node:
-                if isinstance(tag, dict) and tag.get("name"):
-                    tags.append(str(tag["name"]))
-        return tags
-
     def track_get_info(self, artist: str | None = None, title: str | None = None, mbid: str | None = None, autocorrect: bool = True) -> dict[str, Any] | None:
         if not self.enabled:
             return None
@@ -350,15 +335,6 @@ class DiscogsClient(ApiClientBase):
     @property
     def enabled(self) -> bool:
         return bool(self.user_token)
-
-    def search_release(self, artist: str | None, title: str | None, limit: int = 3) -> list[dict[str, Any]]:
-        if not self.enabled or not title:
-            return []
-        params: dict[str, Any] = {"type": "release", "per_page": limit, "page": 1, "release_title": title}
-        if artist:
-            params["artist"] = artist
-        payload = self.request_json("GET", f"{self.BASE}/database/search", params=params)
-        return [r for r in payload.get("results", []) if isinstance(r, dict)] if isinstance(payload, dict) else []
 
     def search_track(self, artist: str | None, title: str | None, limit: int = 3) -> list[dict[str, Any]]:
         if not self.enabled or not title:

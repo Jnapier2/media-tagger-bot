@@ -69,7 +69,7 @@ Set `paths.media_root` and a meaningful `project.contact` value in the generated
 - Runtime configuration, logs, caches, reports, diagnostics, and media are excluded from version control.
 - Use the project only with media you are authorized to inspect and modify.
 
-See [API and integration notes](docs/API_NOTES.md), [operations](docs/OPERATIONS.md), and [verification](docs/VERIFICATION.md) for the implementation boundary.
+See [API and integration notes](docs/API_NOTES.md) and [operations](docs/OPERATIONS.md) for the implementation boundary.
 
 ## Development
 
@@ -82,9 +82,9 @@ py -3.11 -m venv .venv
 
 The test suite uses controlled provider responses and temporary media fixtures. It does not require live API credentials.
 
-## Project status
+## Status
 
-This public showcase is based on MediaTaggerBot v0.5.4. It is a reference implementation and portfolio project, not a managed metadata service. Review the configuration and dry-run output for your environment before any mutation.
+MediaTaggerBot v0.5.4 is a reference implementation, not a managed metadata service. Review the configuration and dry-run output for your environment before any mutation.
 
 ## License
 

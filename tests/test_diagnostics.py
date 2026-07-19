@@ -35,7 +35,6 @@ def test_diagnostics_is_bounded_and_includes_scan_state(tmp_path: Path):
         assert "state/last_api_metrics.json" in names
         assert "state/last_journal_reconciliation.json" in names
         assert "README.md" in names
-        assert "CHANGELOG.md" in names
         assert "SECURITY.md" in names
         # Inactive lock/journal details may be compacted into the mandatory summary so
         # higher-value transfer/manifest/changelog evidence fits inside the bounded export.
