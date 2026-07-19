@@ -2,7 +2,7 @@
 
 Copyright © 2026 Gateway Information Group LLC. All rights reserved.
 
-The source code and documentation in this repository are made available for portfolio review and technical evaluation. You may view the materials and download or clone one copy solely for your own non-commercial evaluation.
+The source code and documentation in this repository are made available for technical evaluation. You may view the materials and download or clone one copy solely for your own non-commercial evaluation.
 
 No permission is granted to use the materials in production, redistribute them, publish modified versions, sublicense them, sell them, or incorporate them into another product or service without prior written permission from Gateway Information Group LLC.
 

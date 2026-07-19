@@ -13,7 +13,7 @@ Artist - Title - Genre - Subgenre.ext
 
 The project is Windows-first and built for collections where a wrong match is more costly than an unresolved file. It combines public metadata sources with local evidence, records why a match was accepted, and separates inspection from mutation.
 
-## Engineering highlights
+## Workflow safeguards
 
 - Evidence hierarchy: embedded stable IDs and acoustic fingerprints outrank text matching.
 - Safe operating modes: preflight, recursive scan, and dry-run precede any write operation.
