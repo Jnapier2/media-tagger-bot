@@ -772,7 +772,7 @@ def run_processing_mode(
             "scan_coverage": compact_scan_coverage(scan_coverage),
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
-        # Persist the truthful exit classification before diagnostics so Export20 captures
+        # Persist the truthful exit classification before diagnostics so the support bundle captures
         # the current run rather than only the preceding run. Rewrite it once after the
         # diagnostic path is known.
         exact_outputs: dict[str, str | Path] = {**reports, "log": log_path}
@@ -959,7 +959,7 @@ def run_processing_mode(
             completion_class="completed_verified",
             completed_verified=[
                 "Recursive traversal completed and a coverage proof was written.",
-                "Inventory reports and Export20 diagnostics were integrity-tested and finalized.",
+                "Inventory reports and bounded support diagnostics were integrity-tested and finalized.",
             ],
             safest_next_action="Review the coverage status; continue to dry-run only when the intended subfolders were covered.",
             shutdown_reason="normal_exit",

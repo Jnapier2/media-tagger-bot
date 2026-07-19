@@ -52,7 +52,7 @@ Production-evidence safety remediation release. This point release preserves the
 
 ## v0.5.2 — 2026-07-13 CDT
 
-Asset-metadata and searchability alignment release against the v2.16.5 parameter baseline. This is a compatible upgrade from v0.5.1; matching thresholds, filename policy, recursive traversal, and mutation safety are preserved.
+Asset-metadata and searchability alignment release. This is a compatible upgrade from v0.5.1; matching thresholds, filename policy, recursive traversal, and mutation safety are preserved.
 
 ### Asset metadata and provenance
 
@@ -63,7 +63,7 @@ Asset-metadata and searchability alignment release against the v2.16.5 parameter
 - Added stable managed-media asset IDs from MusicBrainz recording ID, ISRC, or AcoustID, plus asset status/class/tags/lineage/schema fields in ID3, MP4, Vorbis-style metadata, supported ExifTool containers, and existing fallback sidecars.
 - Weak filename/tag-only matches intentionally receive no invented path-derived asset identity.
 - Active Python/BAT logs are marked mutable rather than assigned a checksum that would become stale after final log lines; oversized non-key reports are indexed with an explicit hash-budget status.
-- Added compact asset-metadata policy evidence to preflight/environment and Export20 diagnostics.
+- Added compact asset-metadata policy evidence to preflight/environment and bounded support diagnostics.
 
 ### Stability and compatibility
 
@@ -102,7 +102,7 @@ Completion and recovery hardening release against the v2.16.4 triage/exit parame
 - Added a persistent inventory cache keyed by full path, size, modified time, and scanner capability signature. Repeated scans reuse unchanged tags/duration while automatically invalidating changed or moved files.
 - Added an FFmpeg Chromaprint fallback when `fpcalc` is absent and the installed FFmpeg exposes the Chromaprint muxer. `fpcalc` remains preferred.
 - Made report files atomic: CSV, JSONL, HTML, summaries, coverage, review queues, and rollback outputs are staged and finalized rather than leaving partial files on interruption.
-- Added inventory-cache and launcher-attestation evidence to preflight, summaries, state, and Export20 diagnostics.
+- Added inventory-cache and launcher-attestation evidence to preflight, summaries, state, and bounded support diagnostics.
 
 ### BAT/menu and upgrade behavior
 
@@ -139,7 +139,7 @@ Deep parameter-alignment and long-run triage release against v2.16.4.
 - Added rotating Python logs.
 - Added API cache schema/integrity check, corruption quarantine/rebuild, and nonfatal read/write failure behavior.
 - Added operation-journal schema/integrity gate and exception-safe connection cleanup.
-- Added Export20 total uncompressed-size cap, deterministic budget selection, and minimal fallback ZIP.
+- Added a total uncompressed-size cap, deterministic budget selection, and minimal fallback ZIP for support diagnostics.
 - Closed replaced logging handlers and read-only SQLite connections deterministically.
 
 ### Verification and package integrity
@@ -170,7 +170,7 @@ Deep parameter-alignment and long-run triage release against v2.16.4.
 - Added narrow automatic repair for the common invalid `media_root = "D:\Music"` Windows-path syntax.
 - Added a safe in-memory fallback config so diagnostics can always export evidence without modifying an invalid config.
 - Processing modes fail closed on unrelated config errors; Set media root can rebuild from the shipped example while preserving the invalid original.
-- Added config-load/recovery status to preflight, repair, environment summaries, and Export20 diagnostics.
+- Added config-load/recovery status to preflight, repair, environment summaries, and bounded support diagnostics.
 - Manual invalid edits are preserved as rejected copies while the known-good pre-edit config is restored.
 
 ### Verification
@@ -207,7 +207,7 @@ Deep parameter-alignment and long-run triage release against v2.16.4.
 - Added separate connect/read timeouts, true retry-count semantics, transient-only retries, HTTP `Retry-After`, exponential backoff with jitter, and per-provider circuit breakers.
 - Added per-provider request/cache/retry/wait/error telemetry.
 - Hardened API error redaction.
-- Upgraded Export20 diagnostics with lock, operation-journal, API metrics, identity/stability policy, and SQLite runtime/concurrency mitigation evidence.
+- Upgraded bounded support diagnostics with lock, operation-journal, API metrics, identity/stability policy, and SQLite runtime/concurrency mitigation evidence.
 - Added a warning when MusicBrainz contact information remains a placeholder.
 
 ### Verification
@@ -230,7 +230,7 @@ Deep parameter-alignment and long-run triage release against v2.16.4.
 - Added source artist credit and MusicBrainz artist IDs to embedded metadata/provenance.
 - Added `canonical_name_changes`, `name_variant_clusters`, and `repository_name_conflicts` CSV reports.
 - Enhanced repeat-run tag reading, including MP4 freeform suffix detection and persisted MusicBrainz artist IDs.
-- Updated diagnostics with canonicalization policy and consistency reports while retaining Export20 limits.
+- Updated diagnostics with canonicalization policy and consistency reports while retaining bounded file and byte limits.
 - Added six canonicalization tests; total automated tests increased from 16 to 23.
 
 
@@ -255,7 +255,7 @@ Changed:
 - Expanded interoperable MusicBrainz, AcoustID, ISRC, and MediaTaggerBot provenance metadata fields.
 - Wired previously passive settings for report formats, naming pattern, Last.fm subgenre preference, MusicBrainz genre preference, subgenre word limit, ampersand replacement, and same-folder validation.
 - Added optional project-local tool paths and `tools/README.md`.
-- Hardened diagnostics with dynamic version files, last-run/last-scan state, integration registry, collector isolation, a 2 MB candidate cap, prioritized reports, checksum finalization, and Export20 integrity enforcement.
+- Hardened diagnostics with dynamic version files, last-run/last-scan state, integration registry, collector isolation, a 2 MB candidate cap, prioritized reports, checksum finalization, and bounded integrity enforcement.
 - Corrected crossover genre priority so `dance pop` maps to Pop before broad `dance` handling.
 - Added recursive, identifier shortcut, repeat-skip, and diagnostics automated tests.
 
@@ -293,7 +293,7 @@ Changed:
 - Added input-assurance reporting for the target media path: recognized -> validated -> normalized -> mapped -> exercised -> confirmed.
 - Added input-assurance details to preflight JSON, repair reports, environment summaries, and diagnostic summaries.
 - Hardened API exception logging by redacting common API key/token shapes before writing request failure messages.
-- Extended diagnostics to include the v0.1.3 coverage ledger when available, while preserving the Export20 cap.
+- Extended diagnostics to include the v0.1.3 coverage ledger when available, while preserving the bounded file cap.
 - Updated docs, known-good notes, API notes, transfer brief, manifest, and full batch output for v2.16.2.
 
 Preserved:
@@ -314,7 +314,7 @@ Changed:
 - Updated BAT menu with `Set media root` and `Repair/check` options.
 - Updated PowerShell launcher to include `set-root`/`repair` and reduce repeated pip-install friction with a dependency-check marker.
 - Replaced `-ExecutionPolicy Bypass` in the BAT shim with `RemoteSigned` to avoid normalizing a bypass-style launcher.
-- Upgraded diagnostics export to schema v2 with path status, API status, export manifest, diagnostic summary, redacted log tail, deterministic allowlist collection, ZIP integrity test, and Export20 cap enforcement.
+- Upgraded diagnostics export to schema v2 with path status, API status, export manifest, diagnostic summary, redacted log tail, deterministic allowlist collection, ZIP integrity test, and bounded cap enforcement.
 - Added config settings for stale lock age and progress-log cadence.
 - Updated docs, known-good notes, API notes, transfer brief, manifest, and full batch output.
 
@@ -349,5 +349,5 @@ Added:
 - Optional ExifTool metadata fallback for video files.
 - Sidecar metadata JSON for unsupported embedded writers.
 - CSV, JSONL, HTML, summary JSON, rollback manifest reports.
-- Export20-style diagnostics ZIP.
+- Bounded, redacted support diagnostics ZIP.
 - Single-instance lock.

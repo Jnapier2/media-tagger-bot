@@ -18,7 +18,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 ASSET_METADATA_SCHEMA = "asset-metadata-v1"
 PROJECT_SLUG = "media-tagger-bot"
-DEFAULT_SENSITIVITY = "project-internal"
+DEFAULT_SENSITIVITY = "local-private"
 RUNTIME_HASH_MAX_BYTES = 64_000_000
 RUNTIME_MANIFEST_FIELDS = [
     "asset_id", "path", "title", "purpose", "asset_class", "role", "format",
@@ -44,7 +44,7 @@ _PURPOSES: dict[str, str] = {
     "rollback_manifest_json": "Machine-readable filename rollback plan",
     "rollback_manifest_csv": "Tabular filename rollback plan",
     "run_exit_report": "Truthful terminal status and work-window exit report",
-    "diagnostics_zip": "Redacted Export20 diagnostic package",
+    "diagnostics_zip": "Redacted bounded support package",
     "diagnostics_sha256": "Diagnostic package checksum",
     "log": "Timestamped run log",
     "bat_transcript": "Full BAT launcher transcript",

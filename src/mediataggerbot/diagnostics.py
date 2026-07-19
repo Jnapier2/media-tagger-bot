@@ -33,7 +33,7 @@ from .run_control import graceful_stop_status
 from .timeutil import local_timestamp, now_utc
 from .utils import redact_sensitive_text, sha256_file, which, write_json_atomic
 
-EXPORT20_MAX_FILES = 20
+SUPPORT_EXPORT_MAX_FILES = 20
 MAX_CANDIDATE_BYTES = 2_000_000
 INTEGRATION_REVIEW_DATE = "2026-07-10"
 
@@ -227,7 +227,7 @@ def write_diagnostics_export(
     log_path: Path | None = None,
     report_paths: dict[str, Path] | None = None,
 ) -> Path:
-    """Build a deterministic, read-only, redacted Export20 diagnostic bundle.
+    """Build a deterministic, read-only, redacted support bundle.
 
     A minimal fallback ZIP is produced when any advanced collector or packaging stage
     fails. The fallback never scans media, repairs config, writes API/cache state, or
@@ -424,7 +424,7 @@ def _write_diagnostics_export_primary(
                     "mode": mode,
                     "created_utc": now_utc().isoformat(),
                     "elapsed_seconds_before_zip": round(time.monotonic() - started, 3),
-                    "export20_max_files": EXPORT20_MAX_FILES,
+                    "support_export_max_files": SUPPORT_EXPORT_MAX_FILES,
                     "max_candidate_bytes": max_candidate_bytes,
                     "max_total_uncompressed_bytes": max_total_bytes,
                     "selected_optional_file_count": len(selected),
@@ -477,7 +477,7 @@ def _write_diagnostics_export_primary(
                 (stage / "diagnostic_export_manifest.json", "diagnostic_export_manifest.json", "export manifest"),
             ]
             total_size = sum(source.stat().st_size for source, _arcname, _purpose in final_entries)
-            if len(final_entries) <= EXPORT20_MAX_FILES and total_size <= max_total_bytes:
+            if len(final_entries) <= SUPPORT_EXPORT_MAX_FILES and total_size <= max_total_bytes:
                 break
             if not selected:
                 raise RuntimeError(
@@ -502,8 +502,8 @@ def _write_diagnostics_export_primary(
             if bad:
                 raise RuntimeError(f"Diagnostics ZIP integrity failure at {bad}")
             infos = archive.infolist()
-            if len(infos) > EXPORT20_MAX_FILES:
-                raise RuntimeError(f"Diagnostics ZIP exceeded Export20 cap: {len(infos)}")
+            if len(infos) > SUPPORT_EXPORT_MAX_FILES:
+                raise RuntimeError(f"Diagnostics ZIP exceeded bounded file cap: {len(infos)}")
             uncompressed = sum(info.file_size for info in infos)
             if uncompressed > max_total_bytes:
                 raise RuntimeError(

@@ -5,13 +5,13 @@ import zipfile
 from pathlib import Path
 
 from mediataggerbot.config import load_config
-from mediataggerbot.diagnostics import EXPORT20_MAX_FILES, write_diagnostics_export
+from mediataggerbot.diagnostics import SUPPORT_EXPORT_MAX_FILES, write_diagnostics_export
 from mediataggerbot.utils import write_json_atomic
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_diagnostics_is_export20_and_includes_scan_state(tmp_path: Path):
+def test_diagnostics_is_bounded_and_includes_scan_state(tmp_path: Path):
     cfg = load_config(project_root=PROJECT_ROOT, config_path=PROJECT_ROOT / "config" / "config.toml")
     cfg.data["paths"]["diagnostics_dir"] = str(tmp_path / "diagnostics")
     cfg.data["paths"]["temp_dir"] = str(tmp_path / "temp")
@@ -29,7 +29,7 @@ def test_diagnostics_is_export20_and_includes_scan_state(tmp_path: Path):
     with zipfile.ZipFile(path) as archive:
         assert archive.testzip() is None
         names = archive.namelist()
-        assert len(names) <= EXPORT20_MAX_FILES
+        assert len(names) <= SUPPORT_EXPORT_MAX_FILES
         assert "state/last_run_status.json" in names
         assert "state/last_scan_coverage.json" in names
         assert "state/last_api_metrics.json" in names
@@ -38,7 +38,7 @@ def test_diagnostics_is_export20_and_includes_scan_state(tmp_path: Path):
         assert "CHANGELOG.md" in names
         assert "SECURITY.md" in names
         # Inactive lock/journal details may be compacted into the mandatory summary so
-        # higher-value transfer/manifest/changelog evidence fits inside Export20.
+        # higher-value transfer/manifest/changelog evidence fits inside the bounded export.
         summary = json.loads(archive.read("diagnostic_summary.json"))
         assert "operation_journal_status" in summary
         assert "lock_status" in summary

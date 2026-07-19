@@ -96,7 +96,7 @@ rollback_require_paths_under_media_root = true
 # Bound each Python log while retaining a few rotated segments.
 log_max_bytes = 10000000
 log_backup_count = 3
-# Export20 also enforces a total uncompressed-byte budget.
+# The support export also enforces a total uncompressed-byte budget.
 diagnostic_max_total_bytes = 10000000
 # Progress log cadence for large folders.
 progress_log_every_files = 25
