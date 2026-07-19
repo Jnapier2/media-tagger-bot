@@ -13,6 +13,8 @@ Artist - Title - Genre - Subgenre.ext
 
 Built for Windows, it combines public metadata with local evidence, records why each match was accepted, and places dry-run review and conservative apply gates between identification and file mutation.
 
+Confidence governs authority rather than merely ranking candidates: evidence may propose a match, but only a complete scan and conservative gate can authorize a write. Uncertain files remain visible for review instead of being forced into a best guess.
+
 ## Workflow safeguards
 
 - Evidence hierarchy: embedded stable IDs and acoustic fingerprints outrank text matching.
@@ -52,6 +54,8 @@ copy config\config.example.toml config\config.toml
 ```
 
 Set `paths.media_root` and a meaningful `project.contact` value in the generated `config/config.toml`. API credentials can also be provided through `ACOUSTID_CLIENT_KEY`, `LASTFM_API_KEY`, and `DISCOGS_USER_TOKEN` environment variables.
+
+Project-wide paths, matching thresholds, provider rate limits, naming rules, and verification policy are centralized in the TOML file; credentials can remain in environment variables.
 
 ## Recommended operating sequence
 
