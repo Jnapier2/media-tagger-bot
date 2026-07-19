@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import shutil
-import sys
 import time
 import uuid
 from dataclasses import replace
@@ -30,7 +29,7 @@ from .fingerprint import fingerprint_backend_available, fingerprint_backend_stat
 from .genre import classify_genre
 from .launcher_attestation import build_launcher_attestation
 from .logging_setup import setup_logging
-from .models import MatchResult, MediaFile, PlanResult, ScanCoverage, dataclass_to_jsonable
+from .models import GenreResult, MatchResult, MediaFile, PlanResult, ScanCoverage, dataclass_to_jsonable
 from .operation_journal import OperationJournal
 from .rename import build_sidecar_path, build_target_path
 from .reporting import write_reports
@@ -46,7 +45,7 @@ from .pathing import (
     write_repair_report,
 )
 from .timeutil import now_utc, timestamp_for_filename
-from .utils import which, write_json_atomic
+from .utils import write_json_atomic
 
 LOG = logging.getLogger(__name__)
 
@@ -1281,7 +1280,7 @@ def run_processing_mode(
         ]
         completed_not_fully_verified = [
             f"{hard_failures} file(s) ended in a hard failure/skip status; successful files remain journaled and verified.",
-            "Live public repository correctness depends on the responses available during this run.",
+            "Result accuracy depends on metadata-provider responses available during this run.",
         ]
         actual_errors = [
             "Per-file terminal failures: "
@@ -1303,7 +1302,7 @@ def run_processing_mode(
         ]
         completed_not_fully_verified = [
             f"{warnings_count} applied file(s) completed with warnings.",
-            "Live public repository correctness depends on the responses available during this run.",
+            "Result accuracy depends on metadata-provider responses available during this run.",
         ]
         actual_errors = []
         safest_next = "Review applied_with_warning rows and archive the rollback manifest before another mutating batch."
@@ -1317,7 +1316,7 @@ def run_processing_mode(
             "Reports, diagnostics, API metrics, and run-exit evidence were finalized.",
         ]
         completed_not_fully_verified = (
-            ["Live public repository correctness depends on the responses available during this run."]
+            ["Result accuracy depends on metadata-provider responses available during this run."]
             if mode in {"dry-run", "apply-safe", "apply-all"}
             else []
         )

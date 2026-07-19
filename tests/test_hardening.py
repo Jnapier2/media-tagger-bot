@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import get_type_hints
 
 import pytest
 
@@ -20,6 +21,11 @@ from mediataggerbot.single_instance import SingleInstanceLock, read_lock_status
 from mediataggerbot.utils import atomic_text_writer, sha256_file
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_public_type_annotations_resolve() -> None:
+    hints = get_type_hints(main_module.decide_apply)
+    assert "genre" in hints
 
 
 def make_project(tmp_path: Path) -> tuple[Path, Path]:

@@ -1,6 +1,6 @@
 # API and Integration Notes
 
-Public integration boundary for MediaTaggerBot v0.5.4. Provider behavior is covered with controlled responses; this repository does not contain live credentials or deterministic copies of third-party responses.
+Integration boundary for MediaTaggerBot v0.5.4. Provider behavior is covered with controlled responses; this repository does not contain live credentials or deterministic copies of third-party responses.
 
 ## Integration registry
 

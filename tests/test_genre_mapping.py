@@ -4,8 +4,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from mediataggerbot.config import load_config
-from mediataggerbot.genre import classify_genre
+from mediataggerbot.config import load_config  # noqa: E402
+from mediataggerbot.genre import classify_genre  # noqa: E402
 
 
 def test_core_genre_mapping():

@@ -1,5 +1,5 @@
 @echo off
-rem MediaTaggerBot v0.5.4 public Windows launcher.
+rem MediaTaggerBot v0.5.4 Windows launcher.
 setlocal EnableExtensions DisableDelayedExpansion
 
 title MediaTaggerBot v0.5.4 BAT Menu

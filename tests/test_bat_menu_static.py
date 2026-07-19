@@ -50,7 +50,7 @@ def test_bat_menu_modes_match_python_modes() -> None:
         assert mode in text
 
 
-def test_bat_uses_hash_checked_public_dependency_install() -> None:
+def test_bat_uses_hash_checked_locked_dependency_install() -> None:
     text = BAT.read_text(encoding="utf-8")
     lowered = text.casefold()
     assert "requirements.lock.txt" in lowered
@@ -63,7 +63,7 @@ def test_bat_uses_hash_checked_public_dependency_install() -> None:
         assert version in text
 
 
-def test_public_dependency_lock_is_complete() -> None:
+def test_dependency_lock_is_complete() -> None:
     lock = PROJECT_ROOT / "requirements.lock.txt"
     wheels = PROJECT_ROOT / "wheels"
     assert lock.exists()

@@ -1,5 +1,5 @@
 # MediaTaggerBot config v0.5.4
-# Public configuration example for MediaTaggerBot v0.5.4. Do not commit the generated config.toml.
+# Configuration template for MediaTaggerBot v0.5.4. Do not commit the generated config.toml.
 # Copy this file to config.toml and edit media_root + optional API keys.
 
 [project]

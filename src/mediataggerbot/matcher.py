@@ -761,8 +761,8 @@ class Matcher:
             return
         authoritative_tier = result.identity_tier in {"stable_identifier", "fingerprint"}
         # Text-search identities are deliberately not promoted into durable identity memory.
-        # The v0.5.2 production evidence showed that high text scores can still confirm bad
-        # local tags; only MBID/ISRC shortcuts or acoustic fingerprints are authoritative here.
+        # High text scores can still confirm incorrect local tags; only MBID/ISRC shortcuts
+        # or acoustic fingerprints are authoritative here.
         if not authoritative_tier:
             return
         if not (result.musicbrainz_recording_id or media.fingerprint):

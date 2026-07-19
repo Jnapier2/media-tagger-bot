@@ -6,13 +6,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from mediataggerbot.config import load_config
-from mediataggerbot.genre import classify_genre
-from mediataggerbot.matcher import parse_artist_title_from_filename
-from mediataggerbot.models import MatchResult
-from mediataggerbot.rename import build_target_path
-from mediataggerbot.utils import redact_sensitive_text
-from mediataggerbot.pathing import build_input_assurance, build_path_status, looks_absolute_path
+from mediataggerbot.config import load_config  # noqa: E402
+from mediataggerbot.genre import classify_genre  # noqa: E402
+from mediataggerbot.matcher import parse_artist_title_from_filename  # noqa: E402
+from mediataggerbot.models import MatchResult  # noqa: E402
+from mediataggerbot.pathing import build_path_status, looks_absolute_path  # noqa: E402
+from mediataggerbot.rename import build_target_path  # noqa: E402
 
 
 def main() -> int:

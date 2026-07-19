@@ -8,7 +8,7 @@ import pytest
 
 @pytest.fixture(scope="session", autouse=True)
 def repository_test_config():
-    """Exercise the public example config without committing runtime settings."""
+    """Exercise the checked-in example config without committing runtime settings."""
     root = Path(__file__).resolve().parents[1]
     target = root / "config" / "config.toml"
     example = root / "config" / "config.example.toml"

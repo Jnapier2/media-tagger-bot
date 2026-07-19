@@ -6,7 +6,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from . import __version__
 from .timeutil import local_timestamp, now_utc

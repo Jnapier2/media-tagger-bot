@@ -1,5 +1,7 @@
 # MediaTaggerBot
 
+[![CI](https://github.com/Jnapier2/media-tagger-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/Jnapier2/media-tagger-bot/actions/workflows/ci.yml)
+
 Local-first metadata identification, tagging, and renaming for audio and music-video libraries, with dry-run review and fail-closed mutation controls.
 
 MediaTaggerBot turns inconsistent local filenames and tags into a predictable library structure:
@@ -84,7 +86,7 @@ The test suite uses controlled provider responses and temporary media fixtures. 
 
 ## Status
 
-MediaTaggerBot v0.5.4 is a reference implementation, not a managed metadata service. Review the configuration and dry-run output for your environment before any mutation.
+MediaTaggerBot v0.5.4 is a local application, not a managed metadata service. Review the configuration and dry-run output for your environment before any mutation.
 
 ## License
 
