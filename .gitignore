@@ -1,0 +1,35 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Local configuration and credentials
+config/config.toml
+config/backups/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime output
+logs/
+exports/
+diagnostics/
+state/
+temp/
+*.metadata.json
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini

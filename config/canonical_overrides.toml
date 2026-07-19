@@ -1,0 +1,12 @@
+# Optional stable-ID spelling overrides.
+# Leave empty unless a confirmed library preference differs from repository data.
+# Text-only aliases are intentionally unsupported to avoid merging different artists.
+
+[artist_by_mbid]
+# "artist-mbid-here" = "Preferred Artist Spelling"
+
+[recording_title_by_mbid]
+# "recording-mbid-here" = "Preferred Recording Title"
+
+[release_group_title_by_mbid]
+# "release-group-mbid-here" = "Preferred Album Title"

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mediataggerbot"
+version = "0.5.4"
+description = "Local media metadata matcher, tagger, and renamer."
+readme = "README.md"
+keywords = ["music-metadata", "musicbrainz", "acoustid", "media-library", "asset-metadata"]
+requires-python = ">=3.11"
+dependencies = ["requests==2.32.5", "mutagen==1.47.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+mediataggerbot = "mediataggerbot.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

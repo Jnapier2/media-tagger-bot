@@ -1,0 +1,205 @@
+# MediaTaggerBot config v0.5.4
+# Public configuration example for MediaTaggerBot v0.5.4. Do not commit the generated config.toml.
+# Copy this file to config.toml and edit media_root + optional API keys.
+
+[project]
+name = "MediaTaggerBot"
+timezone = "America/Chicago"
+# Set this to a contact email or short identifier for API User-Agent etiquette.
+contact = "local-user@example.invalid"
+config_schema_version = 1
+
+[paths]
+# REQUIRED: point this to the folder containing your MP3s/music videos.
+# Recommended: use BAT option 8 so Windows paths are quoted safely.
+# Manual TOML example: media_root = 'D:\Music Videos and MP3s'
+media_root = ""
+logs_dir = "logs"
+exports_dir = "exports"
+state_dir = "state"
+diagnostics_dir = "diagnostics"
+temp_dir = "temp"
+
+[processing]
+# Modes: preflight, scan-only, dry-run, apply-safe, apply-all, diagnostics, rollback, request-stop
+default_mode = "dry-run"
+include_audio = true
+include_video = true
+supported_audio_extensions = [".mp3", ".m4a", ".aac", ".flac", ".wav", ".aiff", ".aif", ".ogg", ".oga", ".opus", ".wma", ".alac", ".ape", ".mpc", ".mka"]
+supported_video_extensions = [".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".wmv", ".mpg", ".mpeg", ".ts", ".m2ts", ".3gp", ".flv"]
+exclude_dir_names = [] # Empty means no named subfolder is silently omitted.
+# 0 means no limit. For apply testing, use a separate sample-root copy; a limited full-root scan blocks apply.
+max_files_per_run = 0
+same_folder_output = true
+recursive = true
+# Keep true to prove all reachable subfolders were checked.
+require_recursive_scan = true
+# Apply modes fail closed when traversal is partial; dry-run/scan-only still report partial evidence.
+require_complete_scan_before_apply = true
+# Junctions/symlinks are skipped by default to prevent loops and duplicate processing.
+follow_directory_symlinks = false
+write_metadata = true
+rename_files = true
+write_sidecar_for_unsupported_metadata = true
+create_sidecar_for_every_apply = false
+# Safe mode requires a public-database match and confidence >= this value.
+min_auto_confidence_apply_safe = 90.0
+# Aggressive mode allows weaker tag/filename-derived matches.
+min_auto_confidence_apply_all = 55.0
+allow_filename_only_matches_in_apply_all = true
+preserve_extension_case = false
+collision_suffix_style = "space_parentheses_number"
+skip_if_filename_already_matches = true
+# Reuse embedded MusicBrainz/ISRC identifiers before fingerprinting or text search.
+prefer_existing_identifier_shortcuts = true
+# Cache scanner-derived tags/duration by full path + size + modified time. This makes
+# repeated 30k+ file preflight/scan/dry-run passes much faster without trusting stale files.
+cache_media_inventory = true
+inventory_cache_ttl_days = 3650
+# Reuse successful Chromaprint results when full path + size + modified time are unchanged.
+cache_fingerprints = true
+# Generate recursive coverage, exception-only, and duplicate-candidate reports.
+write_scan_coverage_reports = true
+write_exception_only_report = true
+report_duplicate_recording_candidates = true
+# Periodic progress/heartbeat evidence prevents long scans from looking stalled.
+scan_progress_every_directories = 100
+scan_progress_every_files = 250
+fingerprint_timeout_seconds = 120
+ffprobe_timeout_seconds = 45
+api_connect_timeout_seconds = 10
+network_timeout_seconds = 30
+max_retries = 3
+retry_backoff_seconds = 2.0
+retry_jitter_seconds = 0.6
+# Lock owner PID + heartbeat prevent a long healthy batch from being mistaken for stale.
+single_instance_stale_after_seconds = 86400
+single_instance_heartbeat_seconds = 30
+# Durable apply journal + stale-plan and post-write verification; no extra prompts.
+operation_journal_enabled = true
+# Classify crash-left journal entries on the next apply run; this never mutates media.
+reconcile_operation_journal_on_apply = true
+verify_source_unchanged_before_apply = true
+verify_metadata_after_write = true
+require_verified_metadata_before_rename_apply_safe = true
+# Supported formats must be embedded successfully in apply-safe; a sidecar alone is not sufficient.
+require_embedded_metadata_for_supported_formats_apply_safe = true
+# Retry once only when the file itself has a read-only attribute; ACLs/ownership are never changed.
+repair_readonly_attribute_on_apply = true
+# Do not rename/tag in apply-safe when genre would be a blind fallback bucket.
+block_fallback_genre_in_apply_safe = true
+write_api_metrics = true
+# Noncritical API cache corruption is quarantined and rebuilt; apply journal corruption still fails closed.
+api_cache_auto_recover = true
+# Rollback manifests cannot move files outside the configured media root by default.
+rollback_require_paths_under_media_root = true
+# Bound each Python log while retaining a few rotated segments.
+log_max_bytes = 10000000
+log_backup_count = 3
+# Export20 also enforces a total uncompressed-byte budget.
+diagnostic_max_total_bytes = 10000000
+# Progress log cadence for large folders.
+progress_log_every_files = 25
+
+
+[matching]
+# Stable identity memory reuses enriched MBID/ISRC/fingerprint results across duplicate or renamed files.
+identity_memory_enabled = true
+# Only when recording/release/Last.fm terms cannot map to a bucket, reuse one cached artist genre lookup.
+musicbrainz_artist_genre_fallback = true
+# Compare multiple MusicBrainz candidates; apply-safe blocks close runner-up ambiguity automatically.
+text_search_candidate_limit = 8
+min_text_candidate_margin_apply_safe = 10.0
+# Text-only repository matches need artist/title quality plus an independent signal such as duration, filename, folder/album context, or another repository.
+text_apply_safe_require_independent_corroboration = true
+text_apply_safe_min_artist_similarity = 0.90
+text_apply_safe_min_title_similarity = 0.95
+text_apply_safe_max_duration_difference_seconds = 6.0
+block_ambiguous_text_matches_in_apply_safe = true
+# Preserve and score remix/edit/live/acoustic/instrumental qualifiers instead of stripping them.
+version_match_bonus = 5.0
+version_mismatch_penalty = 14.0
+report_acoustic_duplicate_clusters = true
+
+[naming]
+# Requested pattern. When subgenre is not identified, it is omitted by default:
+# Artist - Title - Genre.ext
+# Artist - Title - Genre - Subgenre.ext
+pattern = "{artist} - {title} - {genre} - {subgenre}"
+omit_subgenre_when_unknown = true
+unknown_subgenre_label = "General"
+unknown_artist_label = "Unknown Artist"
+unknown_title_label = "Unknown Title"
+max_filename_length = 180
+# Keep complete paths compatible with Explorer, players, and tools that still honor MAX_PATH.
+# Set 0 only when every downstream tool is confirmed long-path aware.
+max_full_path_length = 240
+# Windows filenames cannot contain / or \, so metadata can keep Hip-Hop/Rap while filenames use Hip-Hop-Rap.
+replace_slash_with = "-"
+replace_ampersand_with = "&"
+collapse_whitespace = true
+
+[genres]
+main_genres = ["Pop", "Rock", "Hip-Hop/Rap", "Electronic Dance Music (EDM)", "Country", "R&B/Soul", "Jazz", "Classical"]
+# Used when databases identify the track but provide no usable genre/tag. Change if you prefer another default bucket.
+fallback_main_genre = "Pop"
+filename_main_genre_overrides = { "Hip-Hop/Rap" = "Hip-Hop-Rap", "R&B/Soul" = "R&B-Soul" }
+prefer_musicbrainz_genres = true
+prefer_lastfm_for_subgenre = true
+subgenre_max_words = 4
+
+[canonicalization]
+# Use stable MusicBrainz artist entity names for a uniform library.
+# source_credit preserves release-specific printed spellings instead.
+enabled = true
+artist_name_policy = "musicbrainz_entity"
+unicode_form = "NFC"
+# Last.fm autocorrection and optional Discogs track matching are cross-checks.
+# They do not silently override an exact MusicBrainz/ISRC/AcoustID identity.
+crosscheck_lastfm = true
+crosscheck_discogs = true
+use_lastfm_corrections_for_local_fallback = true
+block_text_match_conflicts_in_apply_safe = true
+repository_agreement_bonus = 3.0
+repository_conflict_penalty = 12.0
+title_agreement_similarity = 0.94
+artist_agreement_similarity = 0.88
+conflict_similarity = 0.68
+overrides_file = "config/canonical_overrides.toml"
+write_consistency_reports = true
+
+[apis]
+# MusicBrainz does not require an API key for read lookups, but it does require a meaningful User-Agent.
+user_agent = "MediaTaggerBot/0.5.4 (local personal media tagger; set contact in config)"
+# Recommended for best matching: register a free AcoustID application key and paste it here.
+# You can also set environment variable ACOUSTID_CLIENT_KEY.
+acoustid_client_key = ""
+# Optional genre/subgenre booster. You can also set LASTFM_API_KEY.
+lastfm_api_key = ""
+# Optional release/style booster. Requires enable_discogs=true and DISCOGS_USER_TOKEN or token below.
+discogs_user_token = ""
+enable_acoustid = true
+enable_musicbrainz = true
+enable_lastfm = true
+enable_discogs = false
+cache_ttl_days = 365
+# Respect public service limits. Do not lower these unless the provider docs change.
+musicbrainz_min_interval_seconds = 1.05
+acoustid_min_interval_seconds = 0.40
+lastfm_min_interval_seconds = 0.25
+discogs_min_interval_seconds = 1.10
+
+[metadata]
+# v0.5.4 also writes compact asset ID/status/class/tags/lineage/schema fields when supported.
+# Stable asset IDs come only from MusicBrainz recording ID, ISRC, or AcoustID.
+id3_version = 3
+use_exiftool_for_video_when_available = true
+write_comment_with_match_evidence = true
+overwrite_existing_tags = true
+sidecar_extension = ".metadata.json"
+
+[reports]
+write_csv = true
+write_jsonl = true
+write_html_summary = true
+redact_api_keys = true
