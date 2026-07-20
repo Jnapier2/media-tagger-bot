@@ -13,7 +13,7 @@ Artist - Title - Genre - Subgenre.ext
 
 Built for Windows, it combines public metadata with local evidence, records why each match was accepted, and places dry-run review and conservative apply gates between identification and file mutation.
 
-Confidence governs authority rather than merely ranking candidates: evidence may propose a match, but only a complete scan and conservative gate can authorize a write. Uncertain files remain visible for review instead of being forced into a best guess.
+Confidence is a write control, not just a score. Evidence may propose a match, but only a complete scan and conservative gate can authorize a write. Uncertain files remain visible for review instead of being forced into a best guess.
 
 ## Workflow safeguards
 
