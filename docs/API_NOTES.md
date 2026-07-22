@@ -1,6 +1,6 @@
 # API and Integration Notes
 
-Integration boundary for MediaTaggerBot v0.5.4. Provider behavior is covered with controlled responses; this repository does not contain live credentials or deterministic copies of third-party responses.
+Integration boundary for MediaTaggerBot v0.5.5. Provider behavior is covered with controlled responses; this repository does not contain live credentials or deterministic copies of third-party responses.
 
 ## Integration registry
 
@@ -39,12 +39,12 @@ Set a real `[project].contact`. API keys may be supplied through config or envir
 
 No live provider response is treated as a deterministic release fixture. Candidate ranking, conflicts, retries, rate limits, and circuit breaking are tested with controlled responses. The first Windows dry-run confirms current provider behavior, credentials, network/VPN, and quotas.
 
-## v0.5.4 identifier and circuit policy
+## v0.5.5 identifier and circuit policy
 
 ISRC input is normalized and must match the formal 12-character structure before MusicBrainz lookup. A permanent 4xx or item-specific response is recorded but does not increase the transient circuit failure streak. Only connection failures, timeouts, rate limits, and retryable server statuses can open the temporary provider circuit. Circuit-skip logging is bounded to avoid one warning per media file.
 
 
-## v0.5.4 bounded maintenance research
+## v0.5.5 bounded maintenance research
 
 - SQLite recommends `PRAGMA optimize=0x10002` when opening long-lived connections and `PRAGMA optimize` periodically or before close. MediaTaggerBot applies this only to its local writable cache and journal connections.
 - Windows still exposes a 260-character MAX_PATH compatibility boundary unless applications and system policy opt into long paths. The bot therefore budgets generated full paths conservatively rather than requesting a system policy change.
