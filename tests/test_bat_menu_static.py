@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -72,6 +73,27 @@ def test_dependency_lock_is_complete() -> None:
     for package in ["requests", "mutagen", "charset-normalizer", "idna", "urllib3", "certifi"]:
         assert f"{package}==" in lock_text
     assert lock_text.count("--hash=sha256:") == 9
+
+
+def test_runtime_versions_are_consistent() -> None:
+    project = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    dependencies = {
+        name: version
+        for dependency in project["dependencies"]
+        for name, version in [dependency.split("==", 1)]
+    }
+    project_version = project["version"]
+    requests_version = dependencies["requests"]
+    lock_text = (PROJECT_ROOT / "requirements.lock.txt").read_text(encoding="utf-8")
+    package_text = (PROJECT_ROOT / "src" / "mediataggerbot" / "__init__.py").read_text(
+        encoding="utf-8"
+    )
+    launcher_text = BAT.read_text(encoding="utf-8")
+
+    assert f'__version__ = "{project_version}"' in package_text
+    assert f"MEDIATAGGERBOT_LAUNCHER_VERSION={project_version}" in launcher_text
+    assert f"requests=={requests_version}" in lock_text
+    assert f"'requests':'{requests_version}'" in launcher_text
 
 
 def test_request_stop_bypasses_runtime_rebuild_and_uses_stdlib_control_script() -> None:

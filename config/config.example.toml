@@ -1,5 +1,5 @@
-# MediaTaggerBot config v0.5.4
-# Configuration template for MediaTaggerBot v0.5.4. Do not commit the generated config.toml.
+# MediaTaggerBot config v0.5.5
+# Configuration template for MediaTaggerBot v0.5.5. Do not commit the generated config.toml.
 # Copy this file to config.toml and edit media_root + optional API keys.
 
 [project]
@@ -170,7 +170,7 @@ write_consistency_reports = true
 
 [apis]
 # MusicBrainz does not require an API key for read lookups, but it does require a meaningful User-Agent.
-user_agent = "MediaTaggerBot/0.5.4 (local personal media tagger; set contact in config)"
+user_agent = "MediaTaggerBot/0.5.5 (local personal media tagger; set contact in config)"
 # Recommended for best matching: register a free AcoustID application key and paste it here.
 # You can also set environment variable ACOUSTID_CLIENT_KEY.
 acoustid_client_key = ""
@@ -190,7 +190,7 @@ lastfm_min_interval_seconds = 0.25
 discogs_min_interval_seconds = 1.10
 
 [metadata]
-# v0.5.4 also writes compact asset ID/status/class/tags/lineage/schema fields when supported.
+# v0.5.5 also writes compact asset ID/status/class/tags/lineage/schema fields when supported.
 # Stable asset IDs come only from MusicBrainz recording ID, ISRC, or AcoustID.
 id3_version = 3
 use_exiftool_for_video_when_available = true
