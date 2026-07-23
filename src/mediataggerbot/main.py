@@ -501,6 +501,15 @@ def run_validate_config(config: AppConfig, backup_raw: str, run_id: str, log_pat
     return 2
 
 
+def build_credential_status(config: AppConfig) -> dict[str, bool]:
+    """Return configuration state without returning or logging credential values."""
+    return {
+        "acoustid_configured": bool(config.get("apis.acoustid_client_key")),
+        "lastfm_configured": bool(config.get("apis.lastfm_api_key")),
+        "discogs_configured": bool(config.get("apis.discogs_user_token")),
+    }
+
+
 def run_preflight(config: AppConfig, run_id: str, log_path: Path) -> int:
     summary = build_environment_summary(config, run_id, "preflight")
     media_root = config.media_root
@@ -508,11 +517,7 @@ def run_preflight(config: AppConfig, run_id: str, log_path: Path) -> int:
     summary["media_root_exists"] = bool(media_root and media_root.exists())
     summary["path_status"] = build_path_status(config)
     summary["input_assurance"] = build_input_assurance(config)
-    summary["api_keys"] = {
-        "acoustid_client_key": "present" if config.get("apis.acoustid_client_key") else "missing",
-        "lastfm_api_key": "present" if config.get("apis.lastfm_api_key") else "missing",
-        "discogs_user_token": "present" if config.get("apis.discogs_user_token") else "missing",
-    }
+    summary["credential_status"] = build_credential_status(config)
     summary["effective_config_redacted"] = redacted_effective_config(config)
     preflight_path = config.exports_dir / f"preflight_{run_id}.json"
     write_json_atomic(preflight_path, summary)
@@ -560,9 +565,18 @@ def run_preflight(config: AppConfig, run_id: str, log_path: Path) -> int:
     )
     print(f"ffprobe: {summary['tools']['ffprobe'] or 'missing'}")
     print(f"exiftool: {summary['tools']['exiftool'] or 'missing/optional'}")
-    print(f"AcoustID key: {summary['api_keys']['acoustid_client_key']}")
-    print(f"Last.fm key: {summary['api_keys']['lastfm_api_key']}")
-    print(f"Discogs token: {summary['api_keys']['discogs_user_token']}")
+    print(
+        "AcoustID credential configured: "
+        f"{'yes' if summary['credential_status']['acoustid_configured'] else 'no'}"
+    )
+    print(
+        "Last.fm credential configured: "
+        f"{'yes' if summary['credential_status']['lastfm_configured'] else 'no'}"
+    )
+    print(
+        "Discogs credential configured: "
+        f"{'yes' if summary['credential_status']['discogs_configured'] else 'no'}"
+    )
     canonical = config.section("canonicalization")
     print(
         "Canonical names: "
