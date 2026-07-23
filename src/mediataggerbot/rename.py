@@ -43,7 +43,7 @@ def build_target_path(
         stem = pattern.format(artist=artist, title=title, genre=main, subgenre=subgenre)
     except (KeyError, ValueError) as exc:
         raise RuntimeError(f"Invalid naming.pattern: {pattern!r}: {exc}") from exc
-    stem = re.sub(r"(?:\s+-\s*)+$", "", stem).strip(" .-")
+    stem = stem.strip(" .-")
     stem = re.sub(r"\s+", " ", stem).strip()
     if not stem:
         raise RuntimeError("naming.pattern produced an empty filename stem.")

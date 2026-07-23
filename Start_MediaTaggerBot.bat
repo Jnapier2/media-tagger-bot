@@ -1,8 +1,8 @@
 @echo off
-rem MediaTaggerBot v0.5.6 Windows launcher.
+rem MediaTaggerBot v0.5.7 Windows launcher.
 setlocal EnableExtensions DisableDelayedExpansion
 
-title MediaTaggerBot v0.5.6 BAT Menu
+title MediaTaggerBot v0.5.7 BAT Menu
 set "PROJECT_ROOT=%~dp0"
 if "%PROJECT_ROOT:~-1%"=="\" set "PROJECT_ROOT=%PROJECT_ROOT:~0,-1%"
 cd /d "%PROJECT_ROOT%" || (
@@ -117,7 +117,7 @@ goto menu
 
 :header
 echo ===============================================
-echo  MediaTaggerBot v0.5.6
+echo  MediaTaggerBot v0.5.7
 echo  Triage-aware + graceful-stop + offline pinned runtime
 echo ===============================================
 echo Project: %PROJECT_ROOT%
@@ -154,7 +154,7 @@ if exist "%PROJECT_ROOT%\Launch_MediaTaggerBot.ps1" set "LEGACY_PS1=yes_ignored"
 
 > "%LOG_FILE%" echo ==================================================
 >> "%LOG_FILE%" echo MediaTaggerBot BAT run transcript
->> "%LOG_FILE%" echo Version: v0.5.6
+>> "%LOG_FILE%" echo Version: v0.5.7
 >> "%LOG_FILE%" echo Started: %DATE% %TIME%
 >> "%LOG_FILE%" echo ProjectRoot: %PROJECT_ROOT%
 >> "%LOG_FILE%" echo Mode: %MODE%
@@ -289,7 +289,7 @@ exit /b %PY_EXIT%
 
 :set_launcher_environment
 set "MEDIATAGGERBOT_LAUNCHER_KIND=bat_menu"
-set "MEDIATAGGERBOT_LAUNCHER_VERSION=0.5.6"
+set "MEDIATAGGERBOT_LAUNCHER_VERSION=0.5.7"
 set "MEDIATAGGERBOT_LAUNCHER_PROJECT_ROOT=%PROJECT_ROOT%"
 set "MEDIATAGGERBOT_BATCH_LOG=%LOG_FILE%"
 exit /b 0
@@ -316,7 +316,7 @@ exit /b 0
 
 :ensure_runtime
 set "VENV_PY=%PROJECT_ROOT%\.venv\Scripts\python.exe"
-set "DEPS_MARKER=%PROJECT_ROOT%\.venv\.deps_checked_v0.5.6"
+set "DEPS_MARKER=%PROJECT_ROOT%\.venv\.deps_checked_v0.5.7"
 
 if exist "%VENV_PY%" "%VENV_PY%" -c "import platform,sys; ok=sys.version_info[:2] in {(3,11),(3,12),(3,13),(3,14)} and platform.machine().lower() in {'amd64','x86_64'}; raise SystemExit(0 if ok else 1)" >nul 2>nul
 if exist "%VENV_PY%" if not errorlevel 1 goto runtime_python_ready
@@ -370,7 +370,7 @@ if errorlevel 1 (
 )
 
 :dependencies_ready
-> "%DEPS_MARKER%" echo Exact hash-checked dependencies verified for MediaTaggerBot v0.5.6 on %DATE% %TIME%
+> "%DEPS_MARKER%" echo Exact hash-checked dependencies verified for MediaTaggerBot v0.5.7 on %DATE% %TIME%
 exit /b 0
 
 :find_base_python
