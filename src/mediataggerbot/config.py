@@ -162,7 +162,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "write_consistency_reports": True,
     },
     "apis": {
-        "user_agent": "MediaTaggerBot/0.5.5 (local personal media tagger; set contact in config)",
+        "user_agent": "MediaTaggerBot/0.5.6 (local personal media tagger; set contact in config)",
         "acoustid_client_key": "",
         "lastfm_api_key": "",
         "discogs_user_token": "",

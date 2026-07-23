@@ -15,6 +15,12 @@ Built for Windows, it combines public metadata with local evidence, records why 
 
 Confidence is a write control, not just a score. Evidence may propose a match, but only a complete scan and conservative gate can authorize a write. Uncertain files remain visible for review instead of being forced into a best guess.
 
+## Operational evidence
+
+This design is informed by a separate private operating workflow applied to a 38,171-file library. Its latest reconciled checkpoint records 838 verified or already-current metadata outcomes, zero matched-row readback mismatches, zero unmanifested eligible files, and 15 preservation-sensitive cases held closed rather than forced through a write.
+
+Those aggregate results are validation evidence, not a claim that every library file was corrected. Private media, paths, catalog evidence, and operating records are not included in this repository.
+
 ## Workflow safeguards
 
 - Evidence hierarchy: embedded stable IDs and acoustic fingerprints outrank text matching.
@@ -90,7 +96,7 @@ The test suite uses controlled provider responses and temporary media fixtures. 
 
 ## Status
 
-MediaTaggerBot v0.5.5 is a local application, not a managed metadata service. Review the configuration and dry-run output for your environment before any mutation.
+MediaTaggerBot v0.5.6 is a local application, not a managed metadata service. Review the configuration and dry-run output for your environment before any mutation.
 
 ## License
 
