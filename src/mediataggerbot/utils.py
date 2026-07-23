@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import unicodedata
 from contextlib import contextmanager
 from difflib import SequenceMatcher
@@ -103,7 +104,7 @@ def atomic_text_writer(
         finally:
             handle.close()
             handle = None
-        os.replace(temp_name, path)
+        _replace_with_retry(temp_name, path)
         _fsync_directory_best_effort(path.parent)
         temp_name = None
     finally:
@@ -138,7 +139,7 @@ def write_json_atomic(path: Path, data: Any) -> None:
             tmp.flush()
             os.fsync(tmp.fileno())
             temp_name = tmp.name
-        os.replace(temp_name, path)
+        _replace_with_retry(temp_name, path)
         _fsync_directory_best_effort(path.parent)
         temp_name = None
     finally:
@@ -162,6 +163,19 @@ def _fsync_directory_best_effort(directory: Path) -> None:
         pass
     finally:
         os.close(fd)
+
+
+def _replace_with_retry(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None:
+    """Bound transient sharing violations without weakening atomic publication."""
+    attempts = 4
+    for attempt in range(attempts):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def sanitize_component(value: str, slash_replacement: str = "-", collapse_whitespace: bool = True) -> str:

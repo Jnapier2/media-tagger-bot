@@ -13,6 +13,7 @@ import pytest
 
 import mediataggerbot.main as main_module
 import mediataggerbot.single_instance as lock_module
+import mediataggerbot.utils as utils_module
 from mediataggerbot import __version__
 from mediataggerbot.config import AppConfig, load_config
 from mediataggerbot.main import run_rollback
@@ -68,6 +69,31 @@ def test_atomic_text_writer_preserves_existing_destination_on_failure(tmp_path: 
     assert sha256_file(target) == before
     assert target.read_text(encoding="utf-8") == "known-good\n"
     assert [p for p in tmp_path.iterdir() if p != target] == []
+
+
+def test_atomic_text_writer_retries_transient_replace_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "report.json"
+    real_replace = utils_module.os.replace
+    attempts = 0
+
+    def transient_replace(source: str, destination: str) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise PermissionError(32, "sharing violation")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(utils_module.os, "replace", transient_replace)
+    monkeypatch.setattr(utils_module.time, "sleep", lambda _seconds: None)
+
+    with atomic_text_writer(target, encoding="utf-8", newline="\n") as handle:
+        handle.write('{"status": "complete"}\n')
+
+    assert attempts == 3
+    assert target.read_text(encoding="utf-8") == '{"status": "complete"}\n'
 
 
 def test_invalid_runtime_paths_fail_closed_to_project_local_directories(tmp_path: Path) -> None:
