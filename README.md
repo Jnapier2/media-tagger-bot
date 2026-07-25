@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/Jnapier2/media-tagger-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/Jnapier2/media-tagger-bot/actions/workflows/ci.yml)
 
+[Portfolio](https://jerry-napier-portfolio.netlify.app/) · [GitHub profile](https://github.com/Jnapier2)
+
 MediaTaggerBot is a local-first workflow for standardizing audio and music-video libraries when a wrong match is more costly than an unresolved file.
 
 MediaTaggerBot turns inconsistent local filenames and tags into a predictable library structure:
