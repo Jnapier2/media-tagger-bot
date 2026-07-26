@@ -35,7 +35,21 @@ jobs:
           python -m pip install --no-deps -e .
           python -m pip install --only-binary=:all: -r requirements-test.txt
       - name: Verify installed dependency consistency
-        run: python -m pip check
+        shell: pwsh
+        run: |
+          python -m pip check *> pip-check.txt
+          $exitCode = $LASTEXITCODE
+          Get-Content -LiteralPath pip-check.txt
+          exit $exitCode
+      - name: Upload dependency-check diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: dependency-check-python-${{ matrix.python-version }}
+          path: pip-check.txt
+          if-no-files-found: error
+          compression-level: 9
+          retention-days: 7
       - name: Compile
         run: python -m compileall -q src scripts tests
       - name: Test
