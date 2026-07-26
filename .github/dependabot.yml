@@ -1,0 +1,21 @@
+# Review-only GitHub Actions monitoring. Runtime dependency updates require one
+# synchronized launcher, package-metadata, hash-lock, test, and Windows launch pass.
+# Dependabot never auto-merges; existing release checks remain authoritative.
+# Copyright © 2026 Gateway Information Group LLC. All rights reserved.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    groups:
+      compatible-action-updates:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "ci"
