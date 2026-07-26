@@ -9,7 +9,7 @@ description = "Local media metadata matcher, tagger, and renamer."
 readme = "README.md"
 keywords = ["music-metadata", "musicbrainz", "acoustid", "media-library", "asset-metadata"]
 requires-python = ">=3.11"
-dependencies = ["requests==2.34.2", "mutagen==1.47.0"]
+dependencies = ["requests==2.33.0", "mutagen==1.47.0"]
 
 [project.optional-dependencies]
 dev = ["pytest==9.1.1"]
