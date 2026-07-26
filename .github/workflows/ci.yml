@@ -33,6 +33,7 @@ jobs:
             requirements.lock.txt
             requirements-test.txt
       - name: Install exact runtime dependencies
+        id: runtime_install
         shell: pwsh
         run: |
           python -m pip install --only-binary=:all: --require-hashes -r requirements.lock.txt *> runtime-install.txt
@@ -40,7 +41,7 @@ jobs:
           Get-Content -LiteralPath runtime-install.txt
           exit $exitCode
       - name: Upload runtime-install diagnostics
-        if: failure()
+        if: ${{ failure() && steps.runtime_install.outcome == 'failure' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
         with:
           name: runtime-install-python-${{ matrix.python-version }}
@@ -53,6 +54,7 @@ jobs:
       - name: Install exact test dependencies
         run: python -m pip install --only-binary=:all: -r requirements-test.txt
       - name: Verify installed dependency consistency
+        id: pip_check
         shell: pwsh
         run: |
           python -m pip check *> pip-check.txt
@@ -60,7 +62,7 @@ jobs:
           Get-Content -LiteralPath pip-check.txt
           exit $exitCode
       - name: Upload dependency-check diagnostics
-        if: failure()
+        if: ${{ failure() && steps.pip_check.outcome == 'failure' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
         with:
           name: dependency-check-python-${{ matrix.python-version }}
