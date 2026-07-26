@@ -17,11 +17,11 @@ Built for Windows, it combines public metadata with local evidence, records why 
 
 Confidence is a write control, not just a score. Evidence may propose a match, but only a complete scan and conservative gate can authorize a write. Uncertain files remain visible for review instead of being forced into a best guess.
 
-## Operational evidence
+## Design evidence and public boundary
 
-This design is informed by a separate private operating workflow applied to a 38,171-file library. Its latest reconciled checkpoint records 838 verified or already-current metadata outcomes, zero matched-row readback mismatches, zero unmanifested eligible files, and 15 preservation-sensitive cases held closed rather than forced through a write.
+This design is informed by a separate private operating workflow used to exercise complete scans, conservative apply gates, readback verification, rollback records, and preservation holds at library scale.
 
-Those aggregate results are validation evidence, not a claim that every library file was corrected. Private media, paths, catalog evidence, and operating records are not included in this repository.
+The private library, paths, reports, and operating records are not included here, so this repository does not present private aggregate counts as independently verifiable performance evidence. Public claims are limited to behavior that can be reviewed in this source, its tests, and its documented safeguards.
 
 ## Workflow safeguards
 
