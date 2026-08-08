@@ -32,4 +32,5 @@ jobs:
       - name: Apply, validate, and commit reviewed source
         run: python tools/apply_public_source.py
 
+# Retry 2: Ubuntu validates exact direct pins; Windows CI validates the hashed wheel lock.
 # Copyright © 2026 Gateway Information Group LLC. All rights reserved.
