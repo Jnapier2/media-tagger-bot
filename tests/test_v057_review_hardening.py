@@ -330,9 +330,10 @@ def test_windows_path_budget_counts_utf16_code_units(tmp_path: Path):
 
     # Emoji is one Python character but two UTF-16 code units on Windows.
     stem = "Artist " + ("🎵" * 40)
-    fitted = fit_stem_to_full_path_budget(tmp_path, stem, ".mp3", 120)
+    budget = windows_utf16_units(str(tmp_path)) + 1 + windows_utf16_units(".mp3") + 50
+    fitted = fit_stem_to_full_path_budget(tmp_path, stem, ".mp3", budget)
     full = str(tmp_path / f"{fitted}.mp3")
-    assert windows_utf16_units(full) <= 120
+    assert windows_utf16_units(full) <= budget
     assert len(fitted) < len(stem)
 
 

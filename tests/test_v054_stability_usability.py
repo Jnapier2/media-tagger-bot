@@ -42,40 +42,45 @@ def _genre() -> GenreResult:
 
 def test_target_path_respects_complete_path_budget(tmp_path: Path):
     cfg = _config()
-    cfg.data["naming"]["max_full_path_length"] = 140
     nested = tmp_path / ("deep-folder-" * 4)
     nested.mkdir()
     source = nested / "source.mp3"
     source.write_bytes(b"")
+    from mediataggerbot.utils import windows_utf16_units
+    budget = windows_utf16_units(str(nested)) + 1 + windows_utf16_units(".mp3") + 60
+    cfg.data["naming"]["max_full_path_length"] = budget
 
     target = build_target_path(source, _match(), _genre(), cfg)
 
-    assert len(str(target)) <= 140
+    assert windows_utf16_units(str(target)) <= budget
     assert target.suffix == ".mp3"
     assert target.parent == source.parent
 
 
 def test_collision_suffix_still_respects_complete_path_budget(tmp_path: Path):
     cfg = _config()
-    cfg.data["naming"]["max_full_path_length"] = 150
     source = tmp_path / "source.mp3"
     source.write_bytes(b"")
+    from mediataggerbot.utils import windows_utf16_units
+    budget = windows_utf16_units(str(tmp_path)) + 1 + windows_utf16_units(" (2).mp3") + 70
+    cfg.data["naming"]["max_full_path_length"] = budget
     first = build_target_path(source, _match(), _genre(), cfg)
     first.write_bytes(b"occupied")
 
     second = build_target_path(source, _match(), _genre(), cfg)
 
     assert second.name.endswith(" (2).mp3")
-    assert len(str(second)) <= 150
+    assert windows_utf16_units(str(second)) <= budget
 
 
 def test_parent_that_consumes_budget_fails_with_clear_error(tmp_path: Path):
     cfg = _config()
-    cfg.data["naming"]["max_full_path_length"] = 120
     parent = tmp_path / ("x" * 100)
     parent.mkdir()
     source = parent / "source.mp3"
     source.write_bytes(b"")
+    from mediataggerbot.utils import windows_utf16_units
+    cfg.data["naming"]["max_full_path_length"] = windows_utf16_units(str(parent)) + 1 + windows_utf16_units(".mp3") + 10
 
     with pytest.raises(RuntimeError, match="full-path budget"):
         build_target_path(source, _match(), _genre(), cfg)
