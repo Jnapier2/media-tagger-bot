@@ -56,7 +56,10 @@ shutil.rmtree(ROOT / "tools", ignore_errors=True)
 
 env = os.environ.copy()
 env["PYTHONPATH"] = str(ROOT / "src")
-run(sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--only-binary=:all:", "--require-hashes", "-r", "requirements.lock.txt", env=env)
+# The release lock intentionally carries the reviewed Windows wheel hashes.
+# This Ubuntu-only transfer validator uses the same exact direct pins, while
+# the repository's native Windows CI proves the hash-locked runtime contract.
+run(sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--only-binary=:all:", "-r", "requirements.txt", env=env)
 run(sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "-r", "requirements-test.txt", env=env)
 run(sys.executable, "-m", "pip", "check", env=env)
 run(sys.executable, "-m", "compileall", "-q", "src", "scripts", "tests", env=env)
