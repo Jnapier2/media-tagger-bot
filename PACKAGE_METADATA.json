@@ -1,0 +1,42 @@
+{
+  "schema": "MediaTaggerBot.package_metadata.v1",
+  "package_id": "media-tagger-bot",
+  "canonical_project_name": "Music File Renaming Bot",
+  "product_alias": "MediaTaggerBot",
+  "version": "v0.5.9",
+  "build_id": "MTB-0.5.9-PUBLIC-20260808-01",
+  "release_date": "2026-08-08",
+  "distribution": "sanitized public source tree",
+  "source_package_sha256": "7b359401997725ee93e2249f41fe6ed26fe7e74ca044141a87215956965b15ac",
+  "parameter_baseline": "ChatGPT New Thread Parameters v2.17.5",
+  "parameter_package_sha256": "655564a81adeff17ddad1e33b1453ae64bde0f405a41e740e3b3a7f65934d2e0",
+  "runtime_identity_gate": {
+    "schema": "MediaTaggerBot.runtime_identity_status.v1",
+    "control_files": [
+      "VERSION.txt",
+      "MANIFEST.json",
+      "PACKAGE_METADATA.json"
+    ],
+    "pre_auth_required": true,
+    "package_managed_field": "package_managed",
+    "mutable_exclusions": [
+      "config/canonical_overrides.toml",
+      "config/config.toml"
+    ],
+    "failure_policy": "block_authenticated_processing_allow_local_status_support_export"
+  },
+  "rights_holder": "Gateway Information Group LLC",
+  "copyright_year": 2026,
+  "rights_notice": "Copyright © 2026 Gateway Information Group LLC. All rights reserved.",
+  "license": "Proprietary first-party source; no license grant. Third-party licenses remain separate.",
+  "public_exclusions": [
+    "credentials",
+    "media",
+    "runtime databases",
+    "logs",
+    "support exports",
+    "private operating evidence",
+    "bundled wheels",
+    "internal handoff material"
+  ]
+}

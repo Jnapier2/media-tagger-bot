@@ -99,3 +99,144 @@ def last_exit_matches_run(config: AppConfig, run_id: str) -> bool:
         return isinstance(payload, dict) and str(payload.get("run_id") or "") == run_id
     except (OSError, ValueError, TypeError):
         return False
+
+
+def finalize_abandoned_run_from_lock(
+    config: AppConfig,
+    recovery_event: dict[str, Any],
+    *,
+    current_run_id: str,
+    current_mode: str,
+) -> dict[str, Path]:
+    """Preserve truthful evidence for a same-host run whose owner process died.
+
+    The function never touches media and never retries journal operations. It records
+    that the prior process failed to reach normal finalization and, for interrupted
+    mutating modes, creates a review marker that a complete dry-run can later clear.
+    """
+    prior_run_id = str(recovery_event.get("prior_run_id") or "").strip()
+    prior_mode = str(recovery_event.get("prior_mode") or "unknown").strip() or "unknown"
+    outputs: dict[str, Path] = {}
+    config.state_dir.mkdir(parents=True, exist_ok=True)
+
+    status_snapshot: dict[str, Any] = {}
+    status_path = config.state_dir / "last_run_status.json"
+    try:
+        import json
+
+        loaded = json.loads(status_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict) and (not prior_run_id or str(loaded.get("run_id") or "") == prior_run_id):
+            status_snapshot = loaded
+    except (OSError, ValueError, TypeError):
+        status_snapshot = {}
+
+    evidence = {
+        "schema": "MediaTaggerBot.abandoned_run_recovery.v1",
+        "created_utc": now_utc().isoformat(),
+        "prior_run_id": prior_run_id,
+        "prior_mode": prior_mode,
+        "current_run_id": current_run_id,
+        "current_mode": current_mode,
+        "lock_recovery": recovery_event,
+        "prior_status_snapshot": status_snapshot,
+        "operation_journal_path": str(config.state_dir / "operation_journal.sqlite3"),
+        "media_files_mutated_by_recovery": False,
+        "automatic_retry_performed": False,
+        "safest_next_action": (
+            "Run Repair/check and a complete Dry-run, then review failed_operations and needs_review before another mutating mode."
+        ),
+    }
+    recovery_state = config.state_dir / "last_abandoned_run_recovery.json"
+    write_json_atomic(recovery_state, evidence)
+    outputs["abandoned_run_recovery_state"] = recovery_state
+
+    if prior_run_id:
+        prior_dir = config.exports_dir / prior_run_id
+        prior_dir.mkdir(parents=True, exist_ok=True)
+        receipt = prior_dir / f"abandoned_run_recovery_{prior_run_id}.json"
+        write_json_atomic(receipt, evidence)
+        outputs["abandoned_run_recovery_receipt"] = receipt
+        exit_path = prior_dir / f"run_exit_report_{prior_run_id}.json"
+        if not exit_path.exists():
+            exit_path = write_run_exit_report(
+                config,
+                prior_run_id,
+                prior_mode,
+                exit_code=76,
+                terminal_status="abandoned_run_recovered",
+                completion_class="partial_not_fully_verified",
+                completed_verified=[
+                    "The same-host owner PID was no longer running; stale lock evidence was preserved before recovery.",
+                    "Lock recovery itself did not read or mutate media files.",
+                ],
+                completed_not_fully_verified=[
+                    "Any operations completed before interruption are represented only by the operation journal and partial run outputs."
+                ],
+                partial_or_rushed=["The prior process did not reach its normal finalization path."],
+                actual_timeouts_errors=[
+                    "Abandoned process/stale lock: "
+                    f"pid={recovery_event.get('prior_pid')} reason={recovery_event.get('stale_reason')} "
+                    f"heartbeat_age_seconds={recovery_event.get('heartbeat_age_seconds')}"
+                ],
+                exact_outputs={
+                    "recovery_receipt": receipt,
+                    "archived_lock": recovery_event.get("archived_lock_path", ""),
+                    "operation_journal": config.state_dir / "operation_journal.sqlite3",
+                },
+                safest_next_action=evidence["safest_next_action"],
+                details={"prior_status_snapshot": status_snapshot},
+                update_last=False,
+            )
+        outputs["prior_run_exit_report"] = exit_path
+
+    if prior_mode in {"apply-safe", "apply-all", "rollback"}:
+        marker = config.state_dir / "mutation_recovery_review_required.json"
+        marker_payload = {
+            "schema": "MediaTaggerBot.mutation_recovery_review.v1",
+            "created_utc": now_utc().isoformat(),
+            "status": "dry_run_required_before_next_mutating_mode",
+            "prior_run_id": prior_run_id,
+            "prior_mode": prior_mode,
+            "recovery_receipt": str(outputs.get("abandoned_run_recovery_receipt", recovery_state)),
+            "failed_operations_report_required": True,
+            "clear_condition": "complete dry-run finalization",
+            "media_files_mutated_by_marker": False,
+        }
+        write_json_atomic(marker, marker_payload)
+        outputs["mutation_recovery_review_marker"] = marker
+    return outputs
+
+
+def mutation_recovery_review_status(config: AppConfig) -> dict[str, Any]:
+    path = config.state_dir / "mutation_recovery_review_required.json"
+    try:
+        import json
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            payload = {}
+    except (OSError, ValueError, TypeError):
+        payload = {}
+    return {"path": str(path), "exists": path.exists(), "required": bool(payload), "payload": payload}
+
+
+def clear_mutation_recovery_review(config: AppConfig, run_id: str) -> Path | None:
+    path = config.state_dir / "mutation_recovery_review_required.json"
+    if not path.exists():
+        return None
+    status = mutation_recovery_review_status(config)
+    receipt = config.exports_dir / run_id / f"mutation_recovery_review_cleared_{run_id}.json"
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(
+        receipt,
+        {
+            "schema": "MediaTaggerBot.mutation_recovery_review_clearance.v1",
+            "cleared_utc": now_utc().isoformat(),
+            "cleared_by_run_id": run_id,
+            "cleared_by_mode": "dry-run",
+            "prior_marker": status.get("payload", {}),
+            "media_files_mutated_by_clearance": False,
+        },
+    )
+    path.unlink(missing_ok=True)
+    return receipt

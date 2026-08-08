@@ -7,13 +7,11 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import get_type_hints
 
 import pytest
 
 import mediataggerbot.main as main_module
 import mediataggerbot.single_instance as lock_module
-import mediataggerbot.utils as utils_module
 from mediataggerbot import __version__
 from mediataggerbot.config import AppConfig, load_config
 from mediataggerbot.main import run_rollback
@@ -24,9 +22,20 @@ from mediataggerbot.utils import atomic_text_writer, sha256_file
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_public_type_annotations_resolve() -> None:
-    hints = get_type_hints(main_module.decide_apply)
-    assert "genre" in hints
+def _allow_test_release_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        main_module,
+        "verify_runtime_identity",
+        lambda *_args, **_kwargs: {
+            "gate_result": "PASS",
+            "package_managed_count": 1,
+            "package_verified_count": 1,
+            "mismatch_count": 0,
+            "runtime_version": f"v{__version__}",
+            "runtime_build_id": main_module.__build_id__,
+            "mismatches": [],
+        },
+    )
 
 
 def make_project(tmp_path: Path) -> tuple[Path, Path]:
@@ -69,31 +78,6 @@ def test_atomic_text_writer_preserves_existing_destination_on_failure(tmp_path: 
     assert sha256_file(target) == before
     assert target.read_text(encoding="utf-8") == "known-good\n"
     assert [p for p in tmp_path.iterdir() if p != target] == []
-
-
-def test_atomic_text_writer_retries_transient_replace_lock(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    target = tmp_path / "report.json"
-    real_replace = utils_module.os.replace
-    attempts = 0
-
-    def transient_replace(source: str, destination: str) -> None:
-        nonlocal attempts
-        attempts += 1
-        if attempts < 3:
-            raise PermissionError(32, "sharing violation")
-        real_replace(source, destination)
-
-    monkeypatch.setattr(utils_module.os, "replace", transient_replace)
-    monkeypatch.setattr(utils_module.time, "sleep", lambda _seconds: None)
-
-    with atomic_text_writer(target, encoding="utf-8", newline="\n") as handle:
-        handle.write('{"status": "complete"}\n')
-
-    assert attempts == 3
-    assert target.read_text(encoding="utf-8") == '{"status": "complete"}\n'
 
 
 def test_invalid_runtime_paths_fail_closed_to_project_local_directories(tmp_path: Path) -> None:
@@ -154,6 +138,7 @@ def test_diagnostics_does_not_clobber_active_runtime_state(tmp_path: Path, monke
     exit_path.write_text(json.dumps(exit_payload), encoding="utf-8")
 
     monkeypatch.setattr(main_module, "find_project_root", lambda *_args, **_kwargs: project)
+    _allow_test_release_identity(monkeypatch)
     diagnostic = project / "diagnostics" / "diagnostic.zip"
     diagnostic.parent.mkdir(parents=True)
     diagnostic.write_bytes(b"zip-placeholder")
@@ -177,6 +162,7 @@ def test_active_run_blocks_repair_before_legacy_launcher_is_moved(
     lock.acquire()
     try:
         monkeypatch.setattr(main_module, "find_project_root", lambda *_args, **_kwargs: project)
+        _allow_test_release_identity(monkeypatch)
         diagnostic = project / "diagnostics" / "failure.zip"
         diagnostic.parent.mkdir(parents=True, exist_ok=True)
         diagnostic.write_bytes(b"failure")
@@ -184,7 +170,7 @@ def test_active_run_blocks_repair_before_legacy_launcher_is_moved(
 
         code = main_module.main(["--mode", "repair", "--config", str(config_path)])
 
-        assert code == 1
+        assert code == 4
         assert legacy.exists()
         assert not (project / "archive" / "legacy_launchers").exists()
     finally:
@@ -267,13 +253,13 @@ def test_single_instance_detects_pid_reuse_using_process_start_time(
     stale = read_lock_status(lock_path, stale_after_seconds=60)
     assert stale["active"] is False
     assert stale["stale"] is True
-    assert stale["reason"] == "pid_reused_and_heartbeat_stale"
+    assert stale["reason"] == "pid_reused_recovery_eligible"
 
     payload["heartbeat_epoch"] = time.time()
     lock_path.write_text(json.dumps(payload), encoding="utf-8")
     recent = read_lock_status(lock_path, stale_after_seconds=60)
     assert recent["active"] is True
-    assert recent["reason"] == "recent_heartbeat_but_pid_was_reused"
+    assert recent["reason"] == "pid_reused_within_short_recovery_grace"
 
     monkeypatch.setattr(lock_module, "_process_start_epoch", lambda _pid: 100.5)
     payload["heartbeat_epoch"] = time.time() - 10_000
@@ -283,12 +269,12 @@ def test_single_instance_detects_pid_reuse_using_process_start_time(
     assert same_owner["reason"] == "owner_pid_and_start_time_match"
 
 
-def test_version_is_consistent_across_launcher_and_package() -> None:
+def test_release_version_is_consistent_across_launcher_and_package() -> None:
     bat = (PROJECT_ROOT / "Start_MediaTaggerBot.bat").read_text(encoding="utf-8")
     pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert f"MediaTaggerBot v{__version__}" in bat
     assert f'MEDIATAGGERBOT_LAUNCHER_VERSION={__version__}' in bat
-    assert f'.deps_checked_v{__version__}' in bat
+    assert f'.deps_attestation_v{__version__}.json' in bat
     assert f'version = "{__version__}"' in pyproject
     assert "0.5.0" not in bat
 

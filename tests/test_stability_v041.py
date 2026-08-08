@@ -5,6 +5,8 @@ import os
 import time
 from pathlib import Path
 
+from _media_fixtures import write_minimal_mp3
+
 import pytest
 
 from mediataggerbot.config import load_config
@@ -64,7 +66,7 @@ def media(path: Path) -> MediaFile:
     )
 
 
-def test_source_change_guard_detects_change_after_scan(tmp_path: Path):
+def test_source_guard_detects_change_after_scan(tmp_path: Path):
     path = tmp_path / "song.mp3"
     path.write_bytes(b"first")
     item = media(path)
@@ -95,7 +97,7 @@ def test_run_wide_target_reservation_prevents_dry_run_collisions(tmp_path: Path)
 def test_apply_safe_writes_verifies_and_renames_with_journal(tmp_path: Path):
     cfg = config(tmp_path)
     source = tmp_path / "old.mp3"
-    source.write_bytes(b"")
+    write_minimal_mp3(source)
     item = media(source)
     target = build_target_path(source, match(), genre(), cfg)
     plan = PlanResult(
@@ -125,7 +127,7 @@ def test_apply_safe_writes_verifies_and_renames_with_journal(tmp_path: Path):
 def test_metadata_verification_rereads_id3(tmp_path: Path):
     cfg = config(tmp_path)
     path = tmp_path / "song.mp3"
-    path.write_bytes(b"")
+    write_minimal_mp3(path)
     wrote, error, sidecar = write_metadata(path, match(), genre(), cfg)
     verified, details = verify_metadata_write(path, match(), genre(), embedded_written=wrote, sidecar_path=sidecar)
 
@@ -144,8 +146,19 @@ def test_operation_journal_reconciles_retryable_and_completed_paths(tmp_path: Pa
     with OperationJournal(journal_path, "old") as old:
         old.start(retry_source, tmp_path / "retry-target.mp3")
         op = old.start(completed_source, completed_target)
-        completed_target.write_bytes(b"")
-        old.update(op, "renamed")
+        completed_target.write_bytes(b"completed")
+        stat_result = completed_target.stat()
+        old.update(
+            op,
+            "rename_verified",
+            details={
+                "final_identity": {
+                    "size_bytes": stat_result.st_size,
+                    "modified_ns": stat_result.st_mtime_ns,
+                    "inode": getattr(stat_result, "st_ino", None),
+                }
+            },
+        )
 
     with OperationJournal(journal_path, "new") as current:
         result = current.reconcile_prior_incomplete()

@@ -1,0 +1,6 @@
+Music File Renaming Bot / MediaTaggerBot
+Copyright © 2026 Gateway Information Group LLC. All rights reserved.
+
+This notice applies to first-party project assets only. It is not a license grant.
+Third-party components retain their own copyright notices and licenses as recorded
+in DEPENDENCY_SBOM.json and their bundled package metadata.

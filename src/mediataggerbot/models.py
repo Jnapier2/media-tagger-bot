@@ -13,6 +13,8 @@ class MediaFile:
     size_bytes: int
     media_kind: str
     modified_ns: int | None = None
+    changed_ns: int | None = None
+    file_id: int | None = None
     relative_depth: int = 0
     duration_seconds: float | None = None
     existing_artist: str | None = None

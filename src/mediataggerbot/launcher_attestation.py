@@ -7,6 +7,7 @@ from typing import Mapping
 _LAUNCHER_ENV_KEYS = (
     "MEDIATAGGERBOT_LAUNCHER_KIND",
     "MEDIATAGGERBOT_LAUNCHER_VERSION",
+    "MEDIATAGGERBOT_LAUNCHER_BUILD_ID",
     "MEDIATAGGERBOT_LAUNCHER_PROJECT_ROOT",
     "MEDIATAGGERBOT_BATCH_LOG",
 )
@@ -16,6 +17,7 @@ def build_launcher_attestation(
     project_root: Path,
     app_version: str,
     env: Mapping[str, str] | None = None,
+    app_build_id: str | None = None,
 ) -> dict[str, object]:
     """Describe and validate the launcher-to-Python handoff.
 
@@ -28,6 +30,7 @@ def build_launcher_attestation(
     raw = {key: str(values.get(key, "") or "") for key in _LAUNCHER_ENV_KEYS}
     kind = raw["MEDIATAGGERBOT_LAUNCHER_KIND"].strip()
     version = raw["MEDIATAGGERBOT_LAUNCHER_VERSION"].strip()
+    build_id = raw["MEDIATAGGERBOT_LAUNCHER_BUILD_ID"].strip()
     root_text = raw["MEDIATAGGERBOT_LAUNCHER_PROJECT_ROOT"].strip()
     batch_log_text = raw["MEDIATAGGERBOT_BATCH_LOG"].strip()
 
@@ -37,6 +40,8 @@ def build_launcher_attestation(
         "kind": kind or "direct_python",
         "declared_version": version or "not_declared",
         "expected_version": str(app_version),
+        "declared_build_id": build_id or "not_declared",
+        "expected_build_id": str(app_build_id or "not_required"),
         "declared_project_root": root_text or "not_declared",
         "expected_project_root": str(project_root),
         "batch_log": batch_log_text or "not_declared",
@@ -60,6 +65,8 @@ def build_launcher_attestation(
         reasons.append("launcher_kind_not_bat_menu")
     if version != str(app_version):
         reasons.append("launcher_version_mismatch")
+    if app_build_id is not None and build_id != str(app_build_id):
+        reasons.append("launcher_build_id_mismatch")
     if not root_text or not _same_path(root_text, project_root):
         reasons.append("launcher_project_root_mismatch")
     if not batch_log_text:

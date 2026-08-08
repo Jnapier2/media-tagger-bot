@@ -13,6 +13,10 @@ from .models import MediaFile
 from .utils import run_command, which
 
 
+def fpcalc_available() -> bool:
+    return which("fpcalc") is not None
+
+
 @lru_cache(maxsize=1)
 def ffmpeg_chromaprint_available() -> bool:
     """Return whether the installed FFmpeg exposes the Chromaprint muxer.
@@ -138,7 +142,10 @@ def fingerprint_cache_key(media: MediaFile) -> str:
         full_path = os.path.normcase(str(media.path.resolve()))
     except OSError:
         full_path = os.path.normcase(os.path.abspath(str(media.path)))
-    signature = f"{full_path}\0{media.size_bytes}\0{media.modified_ns or 0}"
+    signature = (
+        f"{full_path}\0{media.size_bytes}\0{media.modified_ns or 0}"
+        f"\0{media.changed_ns or 0}\0{media.file_id or 0}\0fingerprint-schema-v2"
+    )
     return hashlib.sha256(signature.encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
@@ -151,7 +158,7 @@ def fingerprint_media(
     """Fingerprint one file, reusing a successful prior result when its signature is unchanged."""
     cache_key = fingerprint_cache_key(media)
     if cache is not None and use_cache:
-        cached = cache.get("fingerprint_v1", cache_key)
+        cached = cache.get("fingerprint_v2", cache_key)
         if isinstance(cached, dict) and cached.get("fingerprint"):
             media.fingerprint_duration = _optional_int(cached.get("duration"))
             media.fingerprint = str(cached["fingerprint"])
@@ -170,7 +177,7 @@ def fingerprint_media(
     media.fingerprint_cache_hit = False
     # Cache only successful fingerprints. Timeouts, missing tools, and corrupt files are retried later.
     if cache is not None and use_cache and fingerprint:
-        cache.set("fingerprint_v1", cache_key, {"duration": duration, "fingerprint": fingerprint})
+        cache.set("fingerprint_v2", cache_key, {"duration": duration, "fingerprint": fingerprint})
     return media
 
 

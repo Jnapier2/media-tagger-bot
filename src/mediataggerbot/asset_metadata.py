@@ -6,11 +6,12 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, Iterable, TYPE_CHECKING
 
 from . import __version__
 from .timeutil import local_timestamp, now_utc
-from .utils import sha256_file, write_json_atomic
+from .computer_context import detect_computer_context
+from .utils import csv_safe_mapping, sha256_file, write_json_atomic
 
 if TYPE_CHECKING:  # pragma: no cover
     from .config import AppConfig
@@ -18,7 +19,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 ASSET_METADATA_SCHEMA = "asset-metadata-v1"
 PROJECT_SLUG = "media-tagger-bot"
-DEFAULT_SENSITIVITY = "local-private"
+DEFAULT_SENSITIVITY = "project-internal"
 RUNTIME_HASH_MAX_BYTES = 64_000_000
 RUNTIME_MANIFEST_FIELDS = [
     "asset_id", "path", "title", "purpose", "asset_class", "role", "format",
@@ -35,6 +36,9 @@ _PURPOSES: dict[str, str] = {
     "scan_coverage_json": "Machine-readable recursive scan coverage proof",
     "scan_coverage_csv": "Tabular recursive scan coverage proof",
     "needs_review_csv": "Exception-only review queue",
+    "run_failures_csv": "Hard per-file failure report with complete error rows",
+    "failed_operations_csv": "Read-only operation-journal failure and recovery review",
+    "target_collisions_csv": "Canonical target collision and probable duplicate review",
     "prior_text_identity_review_csv": "Focused review queue for prior MediaTaggerBot text-search identities",
     "duplicate_candidates_csv": "Stable-recording duplicate candidate evidence",
     "acoustic_duplicate_clusters_csv": "Acoustic fingerprint duplicate cluster evidence",
@@ -44,7 +48,7 @@ _PURPOSES: dict[str, str] = {
     "rollback_manifest_json": "Machine-readable filename rollback plan",
     "rollback_manifest_csv": "Tabular filename rollback plan",
     "run_exit_report": "Truthful terminal status and work-window exit report",
-    "diagnostics_zip": "Redacted bounded support package",
+    "diagnostics_zip": "Redacted Export20 diagnostic package",
     "diagnostics_sha256": "Diagnostic package checksum",
     "log": "Timestamped run log",
     "bat_transcript": "Full BAT launcher transcript",
@@ -154,6 +158,9 @@ def _role_from_filename(path: Path) -> str:
         ("summary_", "summary_html" if path.suffix.casefold() == ".html" else "summary_json"),
         ("scan_coverage_", "scan_coverage_csv" if path.suffix.casefold() == ".csv" else "scan_coverage_json"),
         ("needs_review_", "needs_review_csv"),
+        ("run_failures_", "run_failures_csv"),
+        ("failed_operations_", "failed_operations_csv"),
+        ("target_collisions_", "target_collisions_csv"),
         ("prior_text_identity_review_", "prior_text_identity_review_csv"),
         ("duplicate_recording_candidates_", "duplicate_candidates_csv"),
         ("acoustic_duplicate_clusters_", "acoustic_duplicate_clusters_csv"),
@@ -269,6 +276,7 @@ def write_run_asset_manifest(
         "mode": mode,
         "generated_utc": generated_utc,
         "generated_local": local_timestamp(str(config.get("project.timezone", "America/Chicago"))),
+        "computer_context": detect_computer_context(config),
         "tags": [PROJECT_SLUG, "asset-metadata", "runtime-output", mode],
         "aliases": [f"{run_id} outputs", f"{mode} run artifacts"],
         "path_policy": "project-relative; no media-root or private absolute paths",
@@ -314,7 +322,7 @@ def write_run_asset_manifest(
                 row = dict(record)
                 row["tags"] = ";".join(record.get("tags", []))
                 row["aliases"] = ";".join(record.get("aliases", []))
-                writer.writerow({key: row.get(key) for key in RUNTIME_MANIFEST_FIELDS})
+                writer.writerow(csv_safe_mapping({key: row.get(key) for key in RUNTIME_MANIFEST_FIELDS}))
         os.replace(csv_tmp, csv_path)
         sizes = (json_path.stat().st_size, csv_path.stat().st_size)
         if sizes == previous_sizes:

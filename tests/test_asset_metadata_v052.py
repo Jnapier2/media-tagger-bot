@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from _media_fixtures import write_minimal_mp3
+
 from mutagen.id3 import ID3
 
 from mediataggerbot.asset_metadata import (
@@ -101,7 +103,7 @@ def test_run_asset_manifest_uses_project_relative_paths_and_checksums(tmp_path: 
 def test_id3_writer_adds_asset_metadata(tmp_path: Path):
     cfg = load_config(project_root=PROJECT_ROOT, config_path=PROJECT_ROOT / "config" / "config.toml")
     path = tmp_path / "song.mp3"
-    path.write_bytes(b"")
+    write_minimal_mp3(path)
     wrote, error, _ = write_metadata(path, _match(), _genre(), cfg)
     assert wrote is True and error is None
     tags = ID3(path)
@@ -110,7 +112,7 @@ def test_id3_writer_adds_asset_metadata(tmp_path: Path):
     assert str(tags["TXXX:MediaTaggerBot Metadata Schema"]) == ASSET_METADATA_SCHEMA
 
 
-def test_discovery_keeps_multiple_generated_reports(tmp_path: Path):
+def test_discovery_keeps_multiple_run_reports(tmp_path: Path):
     from mediataggerbot.asset_metadata import discover_run_assets
     project = tmp_path / "project"
     for name in ["config", "exports", "logs", "diagnostics", "state", "temp"]:
