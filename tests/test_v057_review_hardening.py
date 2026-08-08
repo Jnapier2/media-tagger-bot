@@ -495,3 +495,44 @@ def test_synchronized_project_path_warning_is_advisory_only():
     assert hint["detected"] is True
     assert hint["provider_hint"] == "OneDrive"
     assert hint["advisory_only"] is True
+
+def test_runtime_environment_verifier_allows_index_installed_dependencies_without_wheels(tmp_path, monkeypatch):
+    from scripts import verify_runtime_environment as verifier
+
+    source_lock = Path(__file__).resolve().parents[1] / "requirements.lock.txt"
+    (tmp_path / "requirements.lock.txt").write_bytes(source_lock.read_bytes())
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "0.5.9"\n', encoding="utf-8")
+    monkeypatch.setattr(verifier.platform, "machine", lambda: "AMD64")
+    monkeypatch.setattr(verifier, "verify_distribution", lambda name, version: {"name": name, "version": version, "record_hashes_checked": 1})
+
+    result = verifier.verify(tmp_path)
+
+    assert result["dependency_source"] == "package_index_with_hash_locked_requirements"
+    assert result["wheels"] == []
+    assert result["status"] == "verified"
+
+
+def test_atomic_replace_retries_transient_permission_error(tmp_path, monkeypatch):
+    from mediataggerbot import utils
+
+    source = tmp_path / "source.tmp"
+    destination = tmp_path / "destination.json"
+    source.write_text("new", encoding="utf-8")
+    destination.write_text("old", encoding="utf-8")
+    real_replace = os.replace
+    calls = {"count": 0}
+
+    def flaky_replace(left, right):
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise PermissionError("transient sharing violation")
+        return real_replace(left, right)
+
+    monkeypatch.setattr(utils.os, "replace", flaky_replace)
+    monkeypatch.setattr(utils.time, "sleep", lambda _seconds: None)
+
+    utils._replace_with_retry(source, destination)
+
+    assert calls["count"] == 3
+    assert destination.read_text(encoding="utf-8") == "new"
+

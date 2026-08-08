@@ -78,21 +78,26 @@ def verify(project_root: Path) -> dict[str, Any]:
 
     lock_path = project_root / "requirements.lock.txt"
     wheels_dir = project_root / "wheels"
-    if not lock_path.is_file() or not wheels_dir.is_dir():
-        raise RuntimeError("requirements.lock.txt or wheels/ is missing")
+    if not lock_path.is_file():
+        raise RuntimeError("requirements.lock.txt is missing")
     lock_text = lock_path.read_text(encoding="utf-8")
     allowed_hashes = {value.casefold() for value in LOCK_HASH_RE.findall(lock_text)}
     if not allowed_hashes:
         raise RuntimeError("requirements.lock.txt contains no SHA256 hashes")
 
     wheel_records: list[dict[str, Any]] = []
-    for wheel in sorted(wheels_dir.glob("*.whl")):
-        digest = sha256_file(wheel)
-        if digest.casefold() not in allowed_hashes:
-            raise RuntimeError(f"bundled wheel hash is not authorized by requirements.lock.txt: {wheel.name}")
-        wheel_records.append({"name": wheel.name, "sha256": digest, "size_bytes": wheel.stat().st_size})
-    if not wheel_records:
-        raise RuntimeError("bundled wheels directory is empty")
+    dependency_source = "package_index_with_hash_locked_requirements"
+    if wheels_dir.exists():
+        if not wheels_dir.is_dir():
+            raise RuntimeError("wheels exists but is not a directory")
+        for wheel in sorted(wheels_dir.glob("*.whl")):
+            digest = sha256_file(wheel)
+            if digest.casefold() not in allowed_hashes:
+                raise RuntimeError(f"bundled wheel hash is not authorized by requirements.lock.txt: {wheel.name}")
+            wheel_records.append({"name": wheel.name, "sha256": digest, "size_bytes": wheel.stat().st_size})
+        if not wheel_records:
+            raise RuntimeError("bundled wheels directory is empty")
+        dependency_source = "bundled_verified_wheels"
 
     distributions = [verify_distribution(name, version) for name, version in EXPECTED.items()]
     pyproject_path = project_root / "pyproject.toml"
@@ -107,6 +112,7 @@ def verify(project_root: Path) -> dict[str, Any]:
         "abi": f"cp{sys.version_info.major}{sys.version_info.minor}",
         "architecture": platform.machine(),
         "requirements_lock_sha256": sha256_file(lock_path),
+        "dependency_source": dependency_source,
         "wheels": wheel_records,
         "distributions": distributions,
         "status": "verified",
