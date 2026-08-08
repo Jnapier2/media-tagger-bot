@@ -30,6 +30,7 @@ jobs:
           python -m pip install --disable-pip-version-check --only-binary=:all: -r requirements.txt
           python -m pip install --disable-pip-version-check -r requirements-test.txt
       - name: Apply, validate, and commit review fixes
-        run: python tools/fix_review_findings.py
+        run: python tools/retry_fix_review_findings.py
 
+# Retry 2: regressions are added to the existing managed v0.5.7 hardening module.
 # Copyright © 2026 Gateway Information Group LLC. All rights reserved.
