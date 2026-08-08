@@ -24,12 +24,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
-      - name: Patch and apply exact sanitized public source
+      - name: Apply exact sanitized public source
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          python tools/patch_public_reconciler.py
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tools/apply_public_release.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install exact runtime and test tools
