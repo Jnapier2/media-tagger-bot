@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import tomllib
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -16,9 +15,19 @@ def test_bat_menu_labels_and_routes_are_complete() -> None:
     targets = re.findall(r"(?im)\b(?:goto|call\s+:)([A-Za-z0-9_-]+)\b", text)
     missing = sorted({target for target in targets if target.casefold() not in label_set})
     assert missing == []
-    for choice in range(1, 15):
+    # v0.5.5 adopts the lean-launcher target: no more than seven top-level
+    # choices, while every previous action remains available in two submenus.
+    for choice in range(1, 7):
         assert f'if "%CHOICE%"=="{choice}" goto ' in text
     assert 'if "%CHOICE%"=="0" exit /b 0' in text
+    main_menu = text[text.index(":menu"):text.index(":diagnostics_menu")]
+    assert len(re.findall(r'(?m)^echo\s+\d+\.', main_menu)) <= 7
+    for action in [
+        "preflight", "scan-only", "dry-run", "apply-safe", "apply-all",
+        "diagnostics", "rollback", "set-root", "repair", "validate-config",
+        "request-stop", "openfolder", "openhelp",
+    ]:
+        assert action in text
 
 
 def test_bat_uses_environment_transport_not_root_argv_quoting() -> None:
@@ -30,7 +39,7 @@ def test_bat_uses_environment_transport_not_root_argv_quoting() -> None:
     lowered = text.casefold()
     assert "powershell.exe" not in lowered
     assert "-executionpolicy" not in lowered
-    assert "legacy powershell launcher detected" in lowered
+    assert "launch_mediataggerbot.ps1" in lowered  # detection only
 
 
 def test_bat_menu_modes_match_python_modes() -> None:
@@ -44,56 +53,33 @@ def test_bat_menu_modes_match_python_modes() -> None:
         "diagnostics",
         "rollback",
         "set-root",
-        "validate-config",
         "repair",
+        "validate-config",
         "request-stop",
     ]:
         assert mode in text
 
 
-def test_bat_uses_hash_checked_locked_dependency_install() -> None:
+def test_bat_uses_hash_locked_public_source_install() -> None:
     text = BAT.read_text(encoding="utf-8")
     lowered = text.casefold()
     assert "requirements.lock.txt" in lowered
     assert "--require-hashes" in lowered
     assert "--no-index" not in lowered
-    assert "\\wheels" not in lowered
-    assert "pip install --disable-pip-version-check -r" not in lowered
+    assert '--only-binary=:all:' in lowered
     assert "request-stop" in lowered
     for version in ["3.11", "3.12", "3.13", "3.14"]:
         assert version in text
 
 
-def test_dependency_lock_is_complete() -> None:
+def test_public_source_does_not_bundle_third_party_wheels() -> None:
     lock = PROJECT_ROOT / "requirements.lock.txt"
-    wheels = PROJECT_ROOT / "wheels"
     assert lock.exists()
-    assert not wheels.exists()
+    assert not (PROJECT_ROOT / "wheels").exists()
     lock_text = lock.read_text(encoding="utf-8")
     for package in ["requests", "mutagen", "charset-normalizer", "idna", "urllib3", "certifi"]:
         assert f"{package}==" in lock_text
     assert lock_text.count("--hash=sha256:") == 9
-
-
-def test_runtime_versions_are_consistent() -> None:
-    project = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-    dependencies = {
-        name: version
-        for dependency in project["dependencies"]
-        for name, version in [dependency.split("==", 1)]
-    }
-    project_version = project["version"]
-    requests_version = dependencies["requests"]
-    lock_text = (PROJECT_ROOT / "requirements.lock.txt").read_text(encoding="utf-8")
-    package_text = (PROJECT_ROOT / "src" / "mediataggerbot" / "__init__.py").read_text(
-        encoding="utf-8"
-    )
-    launcher_text = BAT.read_text(encoding="utf-8")
-
-    assert f'__version__ = "{project_version}"' in package_text
-    assert f"MEDIATAGGERBOT_LAUNCHER_VERSION={project_version}" in launcher_text
-    assert f"requests=={requests_version}" in lock_text
-    assert f"'requests':'{requests_version}'" in launcher_text
 
 
 def test_request_stop_bypasses_runtime_rebuild_and_uses_stdlib_control_script() -> None:

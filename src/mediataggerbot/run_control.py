@@ -11,13 +11,19 @@ from .utils import write_json_atomic
 STOP_REQUEST_FILENAME = "graceful_stop_request.json"
 
 
-def request_graceful_stop(state_dir: Path, lock_path: Path, stale_after_seconds: int) -> dict[str, Any]:
+def request_graceful_stop(
+    state_dir: Path,
+    lock_path: Path,
+    stale_after_seconds: int,
+    request_path: Path | None = None,
+    dead_owner_grace_seconds: int = 30,
+) -> dict[str, Any]:
     """Request that the active owner finalize after its current bounded operation.
 
     This function never kills a process and never touches media. The request is tied to
     the active lock's random owner token so a stale request cannot stop a future run.
     """
-    status = read_lock_status(lock_path, stale_after_seconds)
+    status = read_lock_status(lock_path, stale_after_seconds, dead_owner_grace_seconds)
     payload = read_lock_payload(lock_path)
     result: dict[str, Any] = {
         "schema": "MediaTaggerBot.graceful_stop_request.v1",
@@ -30,9 +36,9 @@ def request_graceful_stop(state_dir: Path, lock_path: Path, stale_after_seconds:
         "lock_status": status,
     }
     owner_token = str(payload.get("owner_token") or "")
-    if not status.get("active") or not owner_token:
+    if not status.get("active") or not status.get("same_host") or not owner_token:
         result["status"] = "no_active_run"
-        result["message"] = "No active owner-aware MediaTaggerBot run was found."
+        result["message"] = "No active same-computer owner-aware MediaTaggerBot run was found."
         return result
 
     request = {
@@ -45,7 +51,7 @@ def request_graceful_stop(state_dir: Path, lock_path: Path, stale_after_seconds:
         "media_files_mutated": False,
     }
     state_dir.mkdir(parents=True, exist_ok=True)
-    request_path = state_dir / STOP_REQUEST_FILENAME
+    request_path = request_path or (state_dir / STOP_REQUEST_FILENAME)
     write_json_atomic(request_path, request)
     result.update(
         {
@@ -60,8 +66,10 @@ def request_graceful_stop(state_dir: Path, lock_path: Path, stale_after_seconds:
     return result
 
 
-def check_graceful_stop(state_dir: Path, owner_token: str) -> tuple[bool, dict[str, Any]]:
-    request_path = state_dir / STOP_REQUEST_FILENAME
+def check_graceful_stop(
+    state_dir: Path, owner_token: str, request_path: Path | None = None
+) -> tuple[bool, dict[str, Any]]:
+    request_path = request_path or (state_dir / STOP_REQUEST_FILENAME)
     payload = _read_json(request_path)
     if not payload:
         return False, {}
@@ -70,8 +78,10 @@ def check_graceful_stop(state_dir: Path, owner_token: str) -> tuple[bool, dict[s
     return True, {**payload, "status": "matched_active_owner", "request_path": str(request_path)}
 
 
-def clear_graceful_stop(state_dir: Path, owner_token: str | None = None) -> bool:
-    request_path = state_dir / STOP_REQUEST_FILENAME
+def clear_graceful_stop(
+    state_dir: Path, owner_token: str | None = None, request_path: Path | None = None
+) -> bool:
+    request_path = request_path or (state_dir / STOP_REQUEST_FILENAME)
     if not request_path.exists():
         return False
     if owner_token:
@@ -82,8 +92,8 @@ def clear_graceful_stop(state_dir: Path, owner_token: str | None = None) -> bool
     return True
 
 
-def graceful_stop_status(state_dir: Path) -> dict[str, Any]:
-    request_path = state_dir / STOP_REQUEST_FILENAME
+def graceful_stop_status(state_dir: Path, request_path: Path | None = None) -> dict[str, Any]:
+    request_path = request_path or (state_dir / STOP_REQUEST_FILENAME)
     payload = _read_json(request_path)
     return {
         "schema": "MediaTaggerBot.graceful_stop_status.v1",

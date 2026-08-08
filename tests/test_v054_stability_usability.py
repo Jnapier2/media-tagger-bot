@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from _media_fixtures import write_minimal_mp3
+
 import pytest
 
 from mediataggerbot.apply_readiness import probe_apply_readiness, readiness_blocks_apply
@@ -40,16 +42,15 @@ def _genre() -> GenreResult:
 
 def test_target_path_respects_complete_path_budget(tmp_path: Path):
     cfg = _config()
+    cfg.data["naming"]["max_full_path_length"] = 140
     nested = tmp_path / ("deep-folder-" * 4)
     nested.mkdir()
     source = nested / "source.mp3"
     source.write_bytes(b"")
-    budget = len(str(nested)) + 1 + len(source.suffix) + 48
-    cfg.data["naming"]["max_full_path_length"] = budget
 
     target = build_target_path(source, _match(), _genre(), cfg)
 
-    assert len(str(target)) <= budget
+    assert len(str(target)) <= 140
     assert target.suffix == ".mp3"
     assert target.parent == source.parent
 
@@ -83,7 +84,7 @@ def test_parent_that_consumes_budget_fails_with_clear_error(tmp_path: Path):
 def test_apply_readiness_reports_ready_for_normal_file(tmp_path: Path):
     cfg = _config()
     source = tmp_path / "source.mp3"
-    source.write_bytes(b"abc")
+    write_minimal_mp3(source)
     result = probe_apply_readiness(source, tmp_path / "target.mp3", cfg)
 
     assert result["status"] in {"ready", "warning_parent_write_not_confirmed"}
@@ -94,7 +95,7 @@ def test_apply_readiness_reports_ready_for_normal_file(tmp_path: Path):
 def test_apply_readiness_blocks_permission_failure(tmp_path: Path, monkeypatch):
     cfg = _config()
     source = tmp_path / "source.mp3"
-    source.write_bytes(b"abc")
+    write_minimal_mp3(source)
     original_open = Path.open
 
     def blocked_open(self, *args, **kwargs):
@@ -109,7 +110,7 @@ def test_apply_readiness_blocks_permission_failure(tmp_path: Path, monkeypatch):
     assert readiness_blocks_apply(result) is True
 
 
-def test_json_cache_reports_optimize_telemetry(tmp_path: Path):
+def test_json_cache_exposes_optimize_telemetry(tmp_path: Path):
     with JsonCache(tmp_path / "cache.sqlite3") as cache:
         cache.set("ns", "key", {"ok": True})
         snapshot = cache.snapshot()

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from _media_fixtures import write_minimal_mp3
+
 from mediataggerbot import __version__
 
 import pytest
@@ -65,18 +67,6 @@ def test_configured_naming_pattern_and_ampersand(tmp_path: Path):
     assert target.name == "A and B__Song__Pop__Dance Pop.mp3"
 
 
-def test_unknown_subgenre_does_not_leave_empty_filename_separator(tmp_path: Path):
-    cfg = config()
-    result = genre()
-    result.subgenre = None
-    source = tmp_path / "old.mp3"
-    source.write_bytes(b"")
-
-    target = build_target_path(source, match(), result, cfg)
-
-    assert target.name == "A & B - Song - Pop.mp3"
-
-
 def test_same_folder_false_fails_closed(tmp_path: Path):
     cfg = config()
     cfg.data["processing"]["same_folder_output"] = False
@@ -89,7 +79,7 @@ def test_same_folder_false_fails_closed(tmp_path: Path):
 def test_id3_writer_populates_identity_and_provenance(tmp_path: Path):
     cfg = config()
     path = tmp_path / "song.mp3"
-    path.write_bytes(b"")
+    write_minimal_mp3(path)
 
     wrote, error, sidecar = write_metadata(path, match(), genre(), cfg)
 

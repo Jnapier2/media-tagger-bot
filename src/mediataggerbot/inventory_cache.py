@@ -15,8 +15,8 @@ from .cache import JsonCache
 from .models import MediaFile
 from .utils import which
 
-INVENTORY_CACHE_NAMESPACE = "media_inventory_v1"
-INVENTORY_CACHE_SCHEMA = 1
+INVENTORY_CACHE_NAMESPACE = "media_inventory_v2"
+INVENTORY_CACHE_SCHEMA = 2
 
 # Only scanner-derived, non-path fields are persisted.  Fingerprints, scan errors,
 # and apply state have separate lifecycles and are intentionally excluded.
@@ -63,7 +63,13 @@ def scanner_capability_signature() -> str:
     )
 
 
-def inventory_cache_key(path: Path, size_bytes: int, modified_ns: int | None) -> str:
+def inventory_cache_key(
+    path: Path,
+    size_bytes: int,
+    modified_ns: int | None,
+    changed_ns: int | None = None,
+    file_id: int | None = None,
+) -> str:
     """Key an inventory result to exact file identity and scanner capabilities.
 
     The FFprobe capability bit prevents an old "duration unavailable" result from
@@ -75,7 +81,10 @@ def inventory_cache_key(path: Path, size_bytes: int, modified_ns: int | None) ->
     except OSError:
         normalized_path = os.path.normcase(os.path.abspath(str(path)))
     capability = scanner_capability_signature()
-    material = f"{normalized_path}\0{int(size_bytes)}\0{int(modified_ns or 0)}\0{capability}"
+    material = (
+        f"{normalized_path}\0{int(size_bytes)}\0{int(modified_ns or 0)}"
+        f"\0{int(changed_ns or 0)}\0{int(file_id or 0)}\0{capability}"
+    )
     return hashlib.sha256(material.encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
@@ -87,12 +96,14 @@ def load_inventory_cache(
     extension: str,
     size_bytes: int,
     modified_ns: int | None,
+    changed_ns: int | None,
+    file_id: int | None,
     relative_depth: int,
     media_kind: str,
 ) -> MediaFile | None:
     if cache is None or cache.disabled:
         return None
-    key = inventory_cache_key(path, size_bytes, modified_ns)
+    key = inventory_cache_key(path, size_bytes, modified_ns, changed_ns, file_id)
     payload = cache.get(INVENTORY_CACHE_NAMESPACE, key)
     if not isinstance(payload, dict) or payload.get("schema") != INVENTORY_CACHE_SCHEMA:
         return None
@@ -107,6 +118,8 @@ def load_inventory_cache(
         extension=extension,
         size_bytes=size_bytes,
         modified_ns=modified_ns,
+        changed_ns=changed_ns,
+        file_id=file_id,
         relative_depth=relative_depth,
         media_kind=media_kind,
         inventory_cache_hit=True,
@@ -124,11 +137,13 @@ def load_inventory_cache(
 def store_inventory_cache(cache: JsonCache | None, item: MediaFile) -> bool:
     if cache is None or cache.disabled or item.scan_error:
         return False
-    key = inventory_cache_key(item.path, item.size_bytes, item.modified_ns)
+    key = inventory_cache_key(item.path, item.size_bytes, item.modified_ns, item.changed_ns, item.file_id)
     payload: dict[str, Any] = {
         "schema": INVENTORY_CACHE_SCHEMA,
         "extension": item.extension,
         "media_kind": item.media_kind,
+        "changed_ns": item.changed_ns,
+        "file_id": item.file_id,
     }
     for field_name in _CACHED_FIELDS:
         payload[field_name] = getattr(item, field_name)

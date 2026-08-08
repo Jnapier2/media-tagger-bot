@@ -12,6 +12,23 @@ from mediataggerbot.pathing import (
 )
 
 
+
+
+def _allow_test_release_identity(main_module, monkeypatch) -> None:
+    monkeypatch.setattr(
+        main_module,
+        "verify_runtime_identity",
+        lambda *_args, **_kwargs: {
+            "gate_result": "PASS",
+            "package_managed_count": 1,
+            "package_verified_count": 1,
+            "mismatch_count": 0,
+            "runtime_version": "v0.5.9",
+            "runtime_build_id": "MTB-0.5.9-PUBLIC-20260808-01",
+            "mismatches": [],
+        },
+    )
+
 def _example_config() -> str:
     return """\
 [project]
@@ -135,6 +152,7 @@ def test_diagnostics_mode_survives_invalid_config_without_repair(tmp_path: Path,
     config_path.write_text(invalid, encoding="utf-8")
     before = config_path.read_bytes()
     monkeypatch.setattr(main_module, "find_project_root", lambda _start=None: project)
+    _allow_test_release_identity(main_module, monkeypatch)
     assert main_module.main(["--mode", "diagnostics"]) == 0
     assert config_path.read_bytes() == before
     zips = list((project / "diagnostics").glob("MediaTaggerBot_DIAGNOSTIC_*.zip"))
@@ -148,6 +166,7 @@ def test_set_root_mode_recovers_invalid_config_via_environment_transport(tmp_pat
     config_path = project / "config" / "config.toml"
     config_path.write_text("[paths]\nmedia_root = \"D:\\Music\"\nbroken = [\n", encoding="utf-8")
     monkeypatch.setattr(main_module, "find_project_root", lambda _start=None: project)
+    _allow_test_release_identity(main_module, monkeypatch)
     monkeypatch.setenv("MEDIATAGGERBOT_ROOT_OVERRIDE", "D:\\")
     assert main_module.main(["--mode", "set-root"]) == 0
     parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))

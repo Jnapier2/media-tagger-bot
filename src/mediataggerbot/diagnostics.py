@@ -20,20 +20,22 @@ try:
 except Exception:  # pragma: no cover
     mutagen = None  # type: ignore
 
-from . import __version__
+from . import __build_id__, __package_id__, __version__
 from .asset_metadata import ASSET_METADATA_SCHEMA, PROJECT_SLUG
 from .config import AppConfig, python_version_summary, redacted_effective_config
+from .computer_context import detect_computer_context, legacy_lock_path, local_lock_path, local_stop_request_path
 from .fingerprint import fingerprint_backend_status
 from .launcher_attestation import build_launcher_attestation
+from .package_identity import read_runtime_identity_status
 from .pathing import build_input_assurance, build_path_status, looks_absolute_path
 from .project_repair import build_project_drift_status
 from .operation_journal import read_operation_journal_summary
-from .single_instance import read_lock_status
+from .single_instance import find_active_same_host_lock, read_lock_status
 from .run_control import graceful_stop_status
 from .timeutil import local_timestamp, now_utc
 from .utils import redact_sensitive_text, sha256_file, which, write_json_atomic
 
-SUPPORT_EXPORT_MAX_FILES = 20
+EXPORT20_MAX_FILES = 20
 MAX_CANDIDATE_BYTES = 2_000_000
 INTEGRATION_REVIEW_DATE = "2026-07-10"
 
@@ -94,11 +96,15 @@ def build_environment_summary(config: AppConfig, run_id: str, mode: str) -> dict
     return {
         "schema": "MediaTaggerBot.environment.v5",
         "app_version": __version__,
+        "app_build_id": __build_id__,
+        "package_id": __package_id__,
+        "runtime_release_identity": read_runtime_identity_status(config.project_root),
         "run_id": run_id,
         "mode": mode,
         "created_utc": now_utc().isoformat(),
         "created_local": local_timestamp(str(config.get("project.timezone", "America/Chicago"))),
         "configured_timezone": str(config.get("project.timezone", "America/Chicago")),
+        "computer_context": detect_computer_context(config),
         "python": python_version_summary(),
         "sqlite_runtime": build_sqlite_runtime_status(),
         "platform": platform.platform(),
@@ -122,7 +128,7 @@ def build_environment_summary(config: AppConfig, run_id: str, mode: str) -> dict
             "legacy_powershell_launcher_present": (config.project_root / "Launch_MediaTaggerBot.ps1").exists(),
             "execution_policy_dependency": False,
             "local_tool_folders_supported": True,
-            "attestation": build_launcher_attestation(config.project_root, __version__),
+            "attestation": build_launcher_attestation(config.project_root, __version__, app_build_id=__build_id__),
         },
         "path_status": build_path_status(config),
         "scan_policy": build_scan_policy(config),
@@ -139,7 +145,7 @@ def build_environment_summary(config: AppConfig, run_id: str, mode: str) -> dict
         "asset_metadata_policy": {
             "schema": ASSET_METADATA_SCHEMA,
             "project_slug": PROJECT_SLUG,
-            "canonical_release_record": "source repository and Git history",
+            "canonical_release_manifest": "MANIFEST.json + MANIFEST.csv",
             "runtime_manifest_pattern": "exports/<run_id>/ASSET_MANIFEST_<run_id>.json|csv",
             "key_asset_headers": True,
             "per_file_sidecars_required": False,
@@ -164,6 +170,11 @@ def build_environment_summary(config: AppConfig, run_id: str, mode: str) -> dict
             "metadata_readback_verification": _safe_bool(config.get("processing.verify_metadata_after_write"), True),
             "rename_readback_verification": True,
             "single_instance_heartbeat_seconds": _safe_int(config.get("processing.single_instance_heartbeat_seconds"), 30, 5, 3600),
+            "single_instance_dead_owner_grace_seconds": _safe_int(
+                config.get("processing.single_instance_dead_owner_grace_seconds"), 30, 5, 600
+            ),
+            "dead_owner_lock_auto_recovery_with_receipt": True,
+            "lock_scope": "advisory_profile_plus_privacy_safe_host_digest",
             "api_connect_timeout_seconds": _safe_int(config.get("processing.api_connect_timeout_seconds"), 10, 1, 3600),
             "api_read_timeout_seconds": _safe_int(config.get("processing.network_timeout_seconds"), 30, 1, 3600),
             "api_retries": _safe_int(config.get("processing.max_retries"), 3, 0, 10),
@@ -177,7 +188,7 @@ def build_environment_summary(config: AppConfig, run_id: str, mode: str) -> dict
             "rotating_log_max_bytes": _safe_int(config.get("processing.log_max_bytes"), 10_000_000, 100_000, 1_000_000_000),
             "rotating_log_backup_count": _safe_int(config.get("processing.log_backup_count"), 3, 1, 100),
             "diagnostic_max_total_bytes": _safe_int(config.get("processing.diagnostic_max_total_bytes"), 10_000_000, 1_000_000, 100_000_000),
-            "hash_checked_dependency_install": True,
+            "offline_hash_locked_wheelhouse": True,
             "inventory_cache_signature_invalidation": True,
             "sqlite_pragma_optimize_on_open_close": True,
             "dry_run_write_readiness_probe": True,
@@ -220,6 +231,114 @@ def build_sqlite_runtime_status() -> dict[str, Any]:
         "pragma_optimize_policy": "0x10002 on writable open; optimize before writable close",
     }
 
+def build_diagnostic_action_summary(
+    config: AppConfig,
+    lock_status: dict[str, Any],
+    journal_summary: dict[str, Any],
+) -> dict[str, Any]:
+    """Return a compact triage-first action list from already-collected evidence."""
+    items: list[dict[str, Any]] = []
+    path_status = build_path_status(config)
+    media_status = str((path_status.get("media_root") or {}).get("status") or "unknown")
+    if media_status != "ok":
+        items.append({
+            "priority": "High",
+            "code": "media_root_not_ready",
+            "summary": f"Media root status is {media_status}.",
+            "next_action": "Use Advanced > Set media root, then rerun Preflight.",
+        })
+
+    runtime_identity = read_runtime_identity_status(config.project_root)
+    if runtime_identity and runtime_identity.get("gate_result") != "PASS":
+        items.append({
+            "priority": "Critical",
+            "code": "runtime_release_identity_block",
+            "summary": f"Runtime release identity gate is {runtime_identity.get('gate_result')} with {runtime_identity.get('mismatch_count', 0)} mismatch(es).",
+            "next_action": "Preserve diagnostics and re-extract the complete verified release ZIP; do not mix source files across releases.",
+        })
+
+    if lock_status.get("active") and lock_status.get("same_host"):
+        items.append({
+            "priority": "High",
+            "code": "active_same_computer_run",
+            "summary": (
+                f"A same-computer run still owns the lock: mode={lock_status.get('mode')} "
+                f"pid={lock_status.get('pid')} reason={lock_status.get('reason')}."
+            ),
+            "next_action": "Allow it to finish or use Advanced > Request stop.",
+        })
+    elif lock_status.get("stale") and lock_status.get("recovery_eligible"):
+        items.append({
+            "priority": "High",
+            "code": "stale_lock_recovery_available",
+            "summary": (
+                f"A stale same-computer lock is recoverable: prior_run={lock_status.get('run_id')} "
+                f"reason={lock_status.get('reason')}."
+            ),
+            "next_action": "Start Repair/check, Scan-only, or Dry-run; recovery will preserve and archive the stale lock automatically.",
+        })
+
+    status_counts = journal_summary.get("status_counts") if isinstance(journal_summary, dict) else {}
+    failed_count = int((status_counts or {}).get("failed", 0))
+    retryable_count = int((status_counts or {}).get("retryable", 0))
+    if failed_count or retryable_count:
+        items.append({
+            "priority": "High",
+            "code": "operation_journal_requires_review",
+            "summary": f"Operation journal has failed={failed_count} retryable={retryable_count}.",
+            "next_action": "Run Repair/check and review failed_operations_<run_id>.csv before another mutating batch.",
+        })
+
+    marker_path = config.state_dir / "mutation_recovery_review_required.json"
+    if marker_path.exists():
+        items.append({
+            "priority": "High",
+            "code": "interrupted_mutation_dry_run_required",
+            "summary": "A prior mutating run ended without normal finalization.",
+            "next_action": "Run a complete Dry-run; it will clear the recovery marker without modifying media.",
+        })
+
+    scan_path = config.state_dir / "last_scan_coverage.json"
+    try:
+        scan_payload = json_load_file(scan_path)
+    except Exception:
+        scan_payload = {}
+    media_scan_errors = int(scan_payload.get("media_scan_errors", 0)) if isinstance(scan_payload, dict) else 0
+    if media_scan_errors:
+        items.append({
+            "priority": "High",
+            "code": "media_inspection_errors",
+            "summary": f"The last scan found {media_scan_errors} media file(s) it could not fully inspect.",
+            "next_action": "Review scan_path_errors and needs_review; affected files remain non-mutating review items.",
+        })
+
+    fingerprint = fingerprint_backend_status()
+    if not fingerprint.get("available"):
+        items.append({
+            "priority": "Normal",
+            "code": "fingerprint_backend_unavailable",
+            "summary": "No acoustic fingerprint backend is available.",
+            "next_action": "Install fpcalc or a Chromaprint-capable FFmpeg build before relying on uncertain identity matches.",
+        })
+    if str(config.get("project.contact", "")).endswith(".invalid"):
+        items.append({
+            "priority": "Normal",
+            "code": "musicbrainz_contact_placeholder",
+            "summary": "The MusicBrainz User-Agent contact remains a placeholder.",
+            "next_action": "Set project.contact to a real email or project URL.",
+        })
+
+    rank = {"Critical": 0, "High": 1, "Normal": 2, "Optional": 3}
+    items.sort(key=lambda row: (rank.get(str(row.get("priority")), 99), str(row.get("code"))))
+    highest = str(items[0]["priority"]) if items else "None"
+    return {
+        "schema": "MediaTaggerBot.diagnostic_action_summary.v1",
+        "highest_priority": highest,
+        "action_count": len(items),
+        "items": items,
+    }
+
+
 def write_diagnostics_export(
     config: AppConfig,
     run_id: str,
@@ -227,7 +346,7 @@ def write_diagnostics_export(
     log_path: Path | None = None,
     report_paths: dict[str, Path] | None = None,
 ) -> Path:
-    """Build a deterministic, read-only, redacted support bundle.
+    """Build a deterministic, read-only, redacted Export20 diagnostic bundle.
 
     A minimal fallback ZIP is produced when any advanced collector or packaging stage
     fails. The fallback never scans media, repairs config, writes API/cache state, or
@@ -260,15 +379,30 @@ def _write_diagnostics_export_primary(
         operation_journal_summary = read_operation_journal_summary(
             config.state_dir / "operation_journal.sqlite3"
         )
-        lock_status_summary = read_lock_status(
-            config.state_dir / "mediataggerbot.lock",
-            _safe_int(config.get("processing.single_instance_stale_after_seconds"), 86400, 60, 31_536_000),
+        computer_context = detect_computer_context(config)
+        lock_path = local_lock_path(config.state_dir, computer_context)
+        stale_after = _safe_int(config.get("processing.single_instance_stale_after_seconds"), 86400, 60, 31_536_000)
+        dead_owner_grace = _safe_int(
+            config.get("processing.single_instance_dead_owner_grace_seconds"), 30, 5, 600
         )
-        stop_status_summary = graceful_stop_status(config.state_dir)
+        selected_lock, lock_status_summary = find_active_same_host_lock(
+            config.state_dir, lock_path, stale_after, dead_owner_grace
+        )
+        if selected_lock != lock_path:
+            lock_status_summary["migration_lock_selected"] = True
+        # Raw hostnames are needed only inside the lock implementation and are not
+        # useful in a shareable diagnostic package.
+        lock_status_summary.pop("hostname", None)
+        lock_status_summary["computer_id"] = computer_context.get("canonical_id")
+        stop_status_summary = graceful_stop_status(
+            config.state_dir, request_path=local_stop_request_path(config.state_dir, computer_context)
+        )
         generated = {
             "redacted_effective_config.json": redacted_effective_config(config),
             "config_load_status.json": config.load_status,
             "environment_summary.json": environment,
+            "runtime_identity_status.json": read_runtime_identity_status(config.project_root),
+            "computer_context.json": computer_context,
             "api_status_summary.json": build_api_status(config),
             "path_status_summary.json": build_path_status(config),
             "dependency_status_summary.json": build_dependency_status(config),
@@ -290,11 +424,13 @@ def _write_diagnostics_export_primary(
         lock_relevant = bool(lock_status_summary.get("active") or lock_status_summary.get("stale"))
         stop_relevant = bool(stop_status_summary.get("exists"))
         candidates: list[tuple[int, Path, str, str]] = [
-            (6, stage / "config_load_status.json", "config_load_status.json", "config parse/recovery status"),
+            (0, stage / "runtime_identity_status.json", "runtime_identity_status.json", "pre-auth runtime release identity and managed-file integrity gate"),
+            (12, stage / "config_load_status.json", "config_load_status.json", "config parse/recovery status"),
             (7, stage / "redacted_effective_config.json", "redacted_effective_config.json", "redacted effective config"),
             (8, stage / "environment_summary.json", "environment_summary.json", "environment, tools, and runtime policy"),
+            (12, stage / "computer_context.json", "computer_context.json", "advisory nonrestrictive computer profile"),
             (21, stage / "path_status_summary.json", "path_status_summary.json", "path and relocation status"),
-            (17, stage / "dependency_status_summary.json", "dependency_status_summary.json", "dependency and provenance status"),
+            (17, stage / "dependency_status_summary.json", "dependency_status_summary.json", "offline dependency/provenance status"),
             (19, stage / "api_status_summary.json", "api_status_summary.json", "API integration registry/status"),
             (16 if journal_relevant else 40, stage / "operation_journal_summary.json", "operation_journal_summary.json", "read-only crash journal summary"),
             (9 if lock_relevant else 41, stage / "lock_status_summary.json", "lock_status_summary.json", "single-instance owner/heartbeat status"),
@@ -306,9 +442,12 @@ def _write_diagnostics_export_primary(
             (9, "last_run_exit.json", "last truthful run-exit classification"),
             (10, "last_run_status.json", "last runtime progress and shutdown reason"),
             (11, "last_scan_coverage.json", "last recursive traversal proof"),
-            (18, "last_api_metrics.json", "last API/cache/identity-memory telemetry"),
+            (11, "last_api_metrics.json", "last API/cache/identity-memory telemetry"),
             (18, "last_inventory_cache_metrics.json", "last scanner inventory-cache telemetry"),
-            (20, "last_journal_reconciliation.json", "last crash-journal reconciliation result"),
+            (11, "last_journal_reconciliation.json", "last crash-journal reconciliation result"),
+            (8, "last_stale_lock_recovery.json", "last preserved stale-lock recovery receipt"),
+            (8, "last_abandoned_run_recovery.json", "last interrupted-run recovery classification"),
+            (8, "mutation_recovery_review_required.json", "dry-run review gate after interrupted mutation"),
         ]:
             state_file = config.state_dir / name
             if not state_file.exists():
@@ -324,14 +463,21 @@ def _write_diagnostics_export_primary(
                 )
 
         doc_priorities = {
-            "README.md": 1,
-            "SECURITY.md": 3,
-            "LICENSE.md": 4,
-            "docs/OPERATIONS.md": 30,
-            "docs/API_NOTES.md": 31,
+            "TRANSFER_BRIEF.md": 1,
+            "VERSION.txt": 2,
+            "MANIFEST.json": 3,
+            "PACKAGE_METADATA.json": 4,
+            "CHANGELOG.md": 5,
+            "KNOWN_GOOD_STATE.md": 6,
+            f"OMISSION_COVERAGE_LEDGER_v{__version__}.md": 7,
+            "ASSET_METADATA_POLICY.md": 8,
+            "README_RUN_FIRST.md": 30,
+            "RUNBOOK.md": 31,
+            "IDENTITY_RESOLUTION_AND_STABILITY_POLICY.md": 32,
+            "NAME_CANONICALIZATION_POLICY.md": 33,
         }
         for name, priority in doc_priorities.items():
-            project_file = config.project_root / Path(name)
+            project_file = config.project_root / name
             if not project_file.exists() or not project_file.is_file():
                 continue
             try:
@@ -358,6 +504,9 @@ def _write_diagnostics_export_primary(
             "rollback_manifest_json": 8,
             "rollback_result": 8,
             "run_exit_report": 9,
+            "run_failures_csv": 10,
+            "failed_operations_csv": 11,
+            "target_collisions_csv": 9,
             "summary_json": 13,
             "needs_review_csv": 14,
             "scan_coverage_json": 15,
@@ -411,18 +560,50 @@ def _write_diagnostics_export_primary(
             max_total_bytes=max(100_000, max_total_bytes - 400_000),
         )
 
+        # Surface terminal truth and diagnostic capture timing without requiring users
+        # to inspect several nested files. Diagnostics generated by a finishing process
+        # legitimately see its lock until the process returns and releases it.
+        run_summary_counts: dict[str, Any] = {}
+        summary_path = report_paths.get("summary_json")
+        if summary_path and summary_path.exists():
+            try:
+                payload = json_load_file(summary_path)
+                if isinstance(payload, dict):
+                    run_summary_counts = {
+                        "errors_total": int(payload.get("errors_total", len(payload.get("errors", [])) if isinstance(payload.get("errors"), list) else 0)),
+                        "errors_included": int(payload.get("errors_included", len(payload.get("errors", [])) if isinstance(payload.get("errors"), list) else 0)),
+                        "errors_omitted": int(payload.get("errors_omitted", 0)),
+                        "metadata_write_failures": int(payload.get("embedded_metadata_write_failure_count", 0)),
+                        "metadata_verification_failures": int(payload.get("metadata_verification_failure_count", 0)),
+                        "target_collision_reviews": int(payload.get("target_collision_review_count", 0)),
+                        "write_readiness_blockers": int(payload.get("write_readiness_blocker_count", 0)),
+                    }
+            except Exception as exc:
+                collector_errors.append({"collector": "summary_error_counts", "error": sanitize_diagnostic_text(str(exc), config)})
+
+        if report_paths.get("run_exit_report") is not None and lock_status_summary.get("active"):
+            capture_phase = "finalization_before_unlock"
+        elif mode == "diagnostics" and lock_status_summary.get("active"):
+            capture_phase = "standalone_diagnostics_before_unlock"
+        elif lock_status_summary.get("active"):
+            capture_phase = "active_run_snapshot"
+        else:
+            capture_phase = "post_run_or_idle_snapshot"
+
         # Build summary/manifest after selection. If their final sizes push the export over
         # budget, drop lowest-priority optional entries until all limits are satisfied.
         while True:
             diag_summary = sanitize_diagnostic_value(
                 {
-                    "schema": "MediaTaggerBot.diagnostic_summary.v5",
+                    "schema": "MediaTaggerBot.diagnostic_summary.v7",
                     "app_version": __version__,
                     "run_id": run_id,
                     "mode": mode,
+                    "capture_phase": capture_phase,
+                    "run_error_counts": run_summary_counts,
                     "created_utc": now_utc().isoformat(),
                     "elapsed_seconds_before_zip": round(time.monotonic() - started, 3),
-                    "support_export_max_files": SUPPORT_EXPORT_MAX_FILES,
+                    "export20_max_files": EXPORT20_MAX_FILES,
                     "max_candidate_bytes": max_candidate_bytes,
                     "max_total_uncompressed_bytes": max_total_bytes,
                     "selected_optional_file_count": len(selected),
@@ -435,11 +616,15 @@ def _write_diagnostics_export_primary(
                     "canonicalization_policy": environment["canonicalization_policy"],
                     "identity_resolution_policy": environment["identity_resolution_policy"],
                     "asset_metadata_policy": environment["asset_metadata_policy"],
+                    "runtime_release_identity": environment.get("runtime_release_identity", {}),
                     "stability_policy": environment["stability_policy"],
                     "sqlite_runtime": build_sqlite_runtime_status(),
                     "operation_journal_status": operation_journal_summary,
                     "lock_status": lock_status_summary,
                     "graceful_stop_status": stop_status_summary,
+                    "action_summary": build_diagnostic_action_summary(
+                        config, lock_status_summary, operation_journal_summary
+                    ),
                     "input_assurance": build_input_assurance(config),
                     "dependency_status": build_dependency_status(config),
                     "api_status": build_api_status(config),
@@ -475,7 +660,7 @@ def _write_diagnostics_export_primary(
                 (stage / "diagnostic_export_manifest.json", "diagnostic_export_manifest.json", "export manifest"),
             ]
             total_size = sum(source.stat().st_size for source, _arcname, _purpose in final_entries)
-            if len(final_entries) <= SUPPORT_EXPORT_MAX_FILES and total_size <= max_total_bytes:
+            if len(final_entries) <= EXPORT20_MAX_FILES and total_size <= max_total_bytes:
                 break
             if not selected:
                 raise RuntimeError(
@@ -500,8 +685,8 @@ def _write_diagnostics_export_primary(
             if bad:
                 raise RuntimeError(f"Diagnostics ZIP integrity failure at {bad}")
             infos = archive.infolist()
-            if len(infos) > SUPPORT_EXPORT_MAX_FILES:
-                raise RuntimeError(f"Diagnostics ZIP exceeded bounded file cap: {len(infos)}")
+            if len(infos) > EXPORT20_MAX_FILES:
+                raise RuntimeError(f"Diagnostics ZIP exceeded Export20 cap: {len(infos)}")
             uncompressed = sum(info.file_size for info in infos)
             if uncompressed > max_total_bytes:
                 raise RuntimeError(
@@ -577,9 +762,13 @@ def write_checksum_sidecar(path: Path) -> Path:
 
 
 def stage_redacted_text_file(source: Path, target: Path, config: AppConfig, max_bytes: int) -> None:
-    data = source.read_bytes()
+    size = source.stat().st_size
+    if size > max_bytes:
+        raise RuntimeError(f"candidate exceeds per-file diagnostic limit: {size} > {max_bytes}")
+    with source.open("rb") as handle:
+        data = handle.read(max_bytes + 1)
     if len(data) > max_bytes:
-        raise RuntimeError(f"candidate exceeds per-file diagnostic limit: {len(data)} > {max_bytes}")
+        raise RuntimeError(f"candidate exceeded per-file diagnostic limit while reading: {len(data)} > {max_bytes}")
     target.write_text(sanitize_diagnostic_text(data.decode("utf-8", errors="replace"), config), encoding="utf-8")
 
 
@@ -590,13 +779,17 @@ def stage_redacted_report(source: Path, target: Path, config: AppConfig) -> None
         write_json_atomic(target, sanitize_diagnostic_value(payload, config))
         return
     if suffix == ".jsonl":
-        lines: list[str] = []
-        for raw_line in source.read_text(encoding="utf-8", errors="replace").splitlines():
-            try:
-                lines.append(json.dumps(sanitize_diagnostic_value(json.loads(raw_line), config), ensure_ascii=False))
-            except (ValueError, TypeError):
-                lines.append(sanitize_diagnostic_text(raw_line, config))
-        target.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+        with source.open("r", encoding="utf-8", errors="replace") as input_handle, target.open(
+            "w", encoding="utf-8", newline="\n"
+        ) as output_handle:
+            for raw_line in input_handle:
+                raw_line = raw_line.rstrip("\r\n")
+                try:
+                    output_handle.write(
+                        json.dumps(sanitize_diagnostic_value(json.loads(raw_line), config), ensure_ascii=False) + "\n"
+                    )
+                except (ValueError, TypeError):
+                    output_handle.write(sanitize_diagnostic_text(raw_line, config) + "\n")
         return
     target.write_text(
         sanitize_diagnostic_text(source.read_text(encoding="utf-8", errors="replace"), config),
@@ -672,7 +865,7 @@ def build_export_manifest(
         except Exception as exc:
             files.append({"archive_name": arcname, "purpose": purpose, "error": redact_text(str(exc))})
     return {
-        "schema": "MediaTaggerBot.diagnostic_export_manifest.v5",
+        "schema": "MediaTaggerBot.diagnostic_export_manifest.v6",
         "created_utc": now_utc().isoformat(),
         "file_count_in_zip": file_count_in_zip,
         "files_described_excluding_manifest_itself": len(files),
@@ -686,18 +879,36 @@ def build_export_manifest(
 
 def build_dependency_status(config: AppConfig) -> dict[str, Any]:
     root = config.project_root
+    wheel_dir = root / "wheels"
     lock_path = root / "requirements.lock.txt"
     bat_path = root / "Start_MediaTaggerBot.bat"
+    sbom_path = root / "DEPENDENCY_SBOM.json"
+    wheels: list[dict[str, Any]] = []
+    if wheel_dir.exists():
+        for wheel in sorted(wheel_dir.glob("*.whl"), key=lambda value: value.name.casefold()):
+            try:
+                wheels.append({"name": wheel.name, "size_bytes": wheel.stat().st_size, "sha256": sha256_file(wheel)})
+            except OSError as exc:
+                wheels.append({"name": wheel.name, "error": redact_text(str(exc))})
     bat_text = bat_path.read_text(encoding="utf-8", errors="replace") if bat_path.exists() else ""
     return {
-        "schema": "MediaTaggerBot.dependency_status.v2",
+        "schema": "MediaTaggerBot.dependency_status.v1",
         "created_utc": now_utc().isoformat(),
         "requirements_lock_present": lock_path.exists(),
         "requirements_lock_sha256": sha256_file(lock_path) if lock_path.exists() else "missing",
+        "wheelhouse_present": wheel_dir.exists(),
+        "wheel_count": len(wheels),
+        "wheels": wheels,
+        "compact_sbom": {
+            "present": sbom_path.exists(),
+            "path": "DEPENDENCY_SBOM.json",
+            "sha256": sha256_file(sbom_path) if sbom_path.exists() else "missing",
+            "format": "compact project JSON; not claimed as SPDX or CycloneDX",
+        },
         "runtime_install_policy": {
             "no_index_flag_present": "--no-index" in bat_text,
             "require_hashes_flag_present": "--require-hashes" in bat_text,
-            "network_download_required_for_dependencies": True,
+            "network_download_required_for_bundled_dependencies": False,
             "supported_runtime": "Windows AMD64 CPython 3.11-3.14",
         },
         "publisher_signature": "not_authenticode_signed",
@@ -786,15 +997,24 @@ def sanitize_diagnostic_text(text: str, config: AppConfig) -> str:
 def sanitize_diagnostic_value(value: Any, config: AppConfig) -> Any:
     """Redact secrets and replace known absolute roots while preserving structure."""
 
-    def clean(node: Any) -> Any:
+    configured_secret_values = _configured_secret_values(config)
+
+    def clean(node: Any, parent_key: str = "") -> Any:
         if isinstance(node, dict):
-            return {str(key): clean(item) for key, item in node.items()}
+            result: dict[str, Any] = {}
+            for key, item in node.items():
+                key_text = str(key)
+                result[key_text] = "<redacted>" if _diagnostic_key_is_sensitive(key_text) else clean(item, key_text)
+            return result
         if isinstance(node, list):
-            return [clean(item) for item in node]
+            return [clean(item, parent_key) for item in node]
         if isinstance(node, tuple):
-            return [clean(item) for item in node]
+            return [clean(item, parent_key) for item in node]
         if isinstance(node, str):
             text = sanitize_diagnostic_text(node, config)
+            for secret in configured_secret_values:
+                if secret:
+                    text = text.replace(secret, "<redacted>")
             # A standalone absolute path that is not under a known root still should not
             # leave diagnostics with a private full path. Preserve only its basename.
             if "\n" not in text and looks_absolute_path(text) and not text.startswith(("http://", "https://")):
@@ -822,10 +1042,39 @@ def _replace_path_prefix(text: str, prefix: str, marker: str) -> str:
 
 
 def tail_text(path: Path, max_bytes: int = 200_000) -> str:
-    data = path.read_bytes()
-    if len(data) > max_bytes:
-        data = data[-max_bytes:]
+    with path.open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        size = handle.tell()
+        handle.seek(max(0, size - max_bytes), os.SEEK_SET)
+        data = handle.read(max_bytes)
     return data.decode("utf-8", errors="replace")
+
+
+def _diagnostic_key_is_sensitive(key: str) -> bool:
+    expanded = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", str(key))
+    tokens = [token.casefold() for token in re.split(r"[^A-Za-z0-9]+", expanded) if token]
+    if any(token in {"password", "passwd", "secret", "token", "credential", "credentials", "authorization", "cookie"} for token in tokens):
+        return True
+    if "key" in tokens and any(token in {"api", "client", "private", "access", "acoustid", "lastfm", "discogs"} for token in tokens):
+        return True
+    normalized = re.sub(r"[^a-z0-9]+", "", str(key).casefold())
+    return normalized.endswith(("apikey", "clientkey", "privatekey", "accesstoken", "refreshtoken"))
+
+
+def _configured_secret_values(config: AppConfig) -> set[str]:
+    values: set[str] = set()
+
+    def visit(node: Any, key: str = "") -> None:
+        if isinstance(node, dict):
+            for child_key, child_value in node.items():
+                visit(child_value, str(child_key))
+        elif _diagnostic_key_is_sensitive(key) and isinstance(node, (str, bytes)):
+            text = node.decode("utf-8", errors="ignore") if isinstance(node, bytes) else node
+            if text and text not in {"missing", "present", "<redacted>"}:
+                values.add(text)
+
+    visit(config.data)
+    return values
 
 
 def safe_arc_component(value: str) -> str:

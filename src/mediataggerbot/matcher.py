@@ -134,7 +134,8 @@ class Matcher:
         return canonicalize_match(enriched, media, self.config)
 
     def _match_existing_identifiers(self, media: MediaFile) -> MatchResult | None:
-        assert self.musicbrainz is not None
+        if self.musicbrainz is None:
+            raise RuntimeError("MusicBrainz client is required for identifier matching")
         if media.existing_musicbrainz_recording_id:
             payload = self.musicbrainz.lookup_recording(media.existing_musicbrainz_recording_id)
             if payload:
@@ -218,7 +219,8 @@ class Matcher:
         return None
 
     def _match_acoustid(self, media: MediaFile) -> MatchResult | None:
-        assert self.acoustid is not None
+        if self.acoustid is None:
+            raise RuntimeError("AcoustID client is required for fingerprint matching")
         payload = self.acoustid.lookup_fingerprint(media.fingerprint_duration or 0, media.fingerprint or "")
         if not payload or payload.get("status") != "ok":
             return None
@@ -238,16 +240,21 @@ class Matcher:
                     candidates.append(candidate)
         if not candidates:
             return None
+        raw_candidate_count = len(candidates)
+        candidates, duplicate_counts = deduplicate_identity_candidates(candidates)
         candidates.sort(key=lambda item: item.confidence, reverse=True)
         best = candidates[0]
         runner = candidates[1].confidence if len(candidates) > 1 else None
         margin = round(best.confidence - runner, 3) if runner is not None else None
-        competing_ids = {item.musicbrainz_recording_id for item in candidates[:3] if item.musicbrainz_recording_id}
+        competing_ids = {identity_candidate_key(item) for item in candidates[:3]}
         ambiguous = len(competing_ids) > 1 and margin is not None and margin < 3.0
         best.candidate_count = len(candidates)
         best.candidate_margin = margin
         best.ambiguity_status = "ambiguous_fingerprint_candidates" if ambiguous else ("single_candidate" if len(candidates) == 1 else "clear_margin")
         best.identity_tier = "fingerprint"
+        best.evidence["acoustid_raw_candidate_count"] = raw_candidate_count
+        best.evidence["acoustid_unique_candidate_count"] = len(candidates)
+        best.evidence["acoustid_duplicate_identity_counts"] = duplicate_counts
         best.evidence["acoustid_candidate_count"] = len(candidates)
         best.evidence["acoustid_candidate_margin"] = margin
         best.evidence["acoustid_top_candidates"] = [
@@ -357,7 +364,8 @@ class Matcher:
         title: str,
         parse_source: str,
     ) -> MatchResult | None:
-        assert self.musicbrainz is not None
+        if self.musicbrainz is None:
+            raise RuntimeError("MusicBrainz client is required for text matching")
         limit = max(2, min(25, int(self.config.get("matching.text_search_candidate_limit", 8))))
         candidates = self.musicbrainz.search_recording(artist, title, limit=limit)
         scored: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
@@ -715,15 +723,34 @@ class Matcher:
             count = 1
         return replace(result, identity_tier=tier, ambiguity_status=ambiguity, candidate_count=count)
 
-    def _identity_memory_keys(self, media: MediaFile, result: MatchResult | None = None) -> list[str]:
+    def _identity_memory_keys(
+        self,
+        media: MediaFile,
+        result: MatchResult | None = None,
+        *,
+        for_store: bool = False,
+    ) -> list[str]:
         keys: list[str] = []
         mbid = (result.musicbrainz_recording_id if result else None) or media.existing_musicbrainz_recording_id
         isrc = normalize_valid_isrc((result.isrc if result else None) or media.existing_isrc)
-        if mbid:
+        result_source = str(result.source if result else "")
+        result_tier = str(result.identity_tier if result else "")
+        if mbid and (not for_store or result_tier in {"stable_identifier", "fingerprint"}):
             keys.append("mbid:" + str(mbid).strip().casefold())
-        if isrc:
+        isrc_proven = (
+            not for_store
+            or result_source.startswith("musicbrainz_isrc")
+            or bool(result and result.evidence.get("embedded_isrc"))
+            or result_tier == "fingerprint"
+        )
+        if isrc and isrc_proven:
             keys.append("isrc:" + isrc)
-        if media.fingerprint and media.fingerprint_duration:
+        fingerprint_proven = (
+            not for_store
+            or result_tier == "fingerprint"
+            or result_source.startswith("acoustid")
+        )
+        if media.fingerprint and media.fingerprint_duration and fingerprint_proven:
             material = f"{int(media.fingerprint_duration)}\0{media.fingerprint}"
             keys.append("fingerprint:" + hashlib.sha256(material.encode("utf-8")).hexdigest())
         return compact_list(keys, limit=5)
@@ -736,13 +763,17 @@ class Matcher:
             return None
         allowed = {item.name for item in fields(MatchResult)}
         for key in keys:
-            payload = self.cache.get("identity_memory_v2", key)
+            payload = self.cache.get("identity_memory_v3", key)
             if not isinstance(payload, dict) or not isinstance(payload.get("match"), dict):
+                continue
+            if payload.get("schema") != "MediaTaggerBot.identity_memory.v3":
                 continue
             try:
                 raw = {name: value for name, value in payload["match"].items() if name in allowed}
                 result = MatchResult(**raw)
             except Exception:
+                continue
+            if not identity_memory_payload_is_safe(key, payload, result):
                 continue
             evidence = dict(result.evidence)
             evidence["identity_memory"] = {"cache_key_type": key.split(":", 1)[0], "stored_source": result.source}
@@ -761,22 +792,33 @@ class Matcher:
             return
         authoritative_tier = result.identity_tier in {"stable_identifier", "fingerprint"}
         # Text-search identities are deliberately not promoted into durable identity memory.
-        # High text scores can still confirm incorrect local tags; only MBID/ISRC shortcuts
-        # or acoustic fingerprints are authoritative here.
+        # The v0.5.2 production evidence showed that high text scores can still confirm bad
+        # local tags; only MBID/ISRC shortcuts or acoustic fingerprints are authoritative here.
         if not authoritative_tier:
             return
         if not (result.musicbrainz_recording_id or media.fingerprint):
             return
-        payload = {
-            "schema": "MediaTaggerBot.identity_memory.v2",
-            "match": dataclass_to_jsonable(replace(result, identity_cache_hit=False)),
-        }
-        for key in self._identity_memory_keys(media, result):
-            self.cache.set("identity_memory_v2", key, payload)
+        for key in self._identity_memory_keys(media, result, for_store=True):
+            payload = {
+                "schema": "MediaTaggerBot.identity_memory.v3",
+                "cache_key": key,
+                "key_type": key.split(":", 1)[0],
+                "result_source": result.source,
+                "identity_tier": result.identity_tier,
+                "safety": {
+                    "apply_blockers": list(result.apply_blockers),
+                    "repository_conflicts": list(result.repository_conflicts),
+                    "ambiguity_status": result.ambiguity_status,
+                    "confidence": result.confidence,
+                },
+                "match": dataclass_to_jsonable(replace(result, identity_cache_hit=False)),
+            }
+            self.cache.set("identity_memory_v3", key, payload)
             self.identity_memory_stats["writes"] += 1
 
     def _discogs_track_candidate(self, artist: str, title: str) -> dict[str, Any] | None:
-        assert self.discogs is not None
+        if self.discogs is None:
+            raise RuntimeError("Discogs client is required for Discogs cross-checking")
         search_results = self.discogs.search_track(artist, title, limit=3)
         best: tuple[float, dict[str, Any]] | None = None
         # Bound network work: inspect at most two release details.
@@ -988,6 +1030,10 @@ def extract_acoustid_artist_components(recording: dict[str, Any]) -> list[dict[s
             }
         )
     return components
+
+
+def extract_acoustid_artist(recording: dict[str, Any]) -> str | None:
+    return render_artist_components(extract_acoustid_artist_components(recording), canonical_entity=True)
 
 
 def parse_lastfm_track_info(payload: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -1254,6 +1300,60 @@ def recording_media_kind_adjustment(media: MediaFile, recording: dict[str, Any])
     if media.media_kind == "audio" and is_video_recording:
         return -5.0
     return 0.0
+
+
+def identity_candidate_key(result: MatchResult) -> str:
+    if result.musicbrainz_recording_id:
+        return "mbid:" + result.musicbrainz_recording_id.casefold()
+    return "text:" + "|".join(
+        [comparison_key(result.artist), comparison_key(result.title), str(round(result.acoustid_score or 0.0, 4))]
+    )
+
+
+def deduplicate_identity_candidates(
+    candidates: list[MatchResult],
+) -> tuple[list[MatchResult], dict[str, int]]:
+    """Aggregate duplicate provider rows before calculating a runner-up margin."""
+    best_by_key: dict[str, MatchResult] = {}
+    counts: dict[str, int] = {}
+    for candidate in candidates:
+        key = identity_candidate_key(candidate)
+        counts[key] = counts.get(key, 0) + 1
+        current = best_by_key.get(key)
+        if current is None or candidate.confidence > current.confidence:
+            best_by_key[key] = candidate
+    return list(best_by_key.values()), dict(sorted(counts.items()))
+
+
+def identity_memory_payload_is_safe(
+    cache_key: str,
+    payload: dict[str, Any],
+    result: MatchResult,
+) -> bool:
+    """Validate safety state and key-to-payload provenance before cache reuse."""
+    if str(payload.get("cache_key") or "") != cache_key:
+        return False
+    if not result.matched or result.confidence < 85.0:
+        return False
+    if result.identity_tier not in {"stable_identifier", "fingerprint"}:
+        return False
+    if result.apply_blockers or result.repository_conflicts or result.ambiguity_status.startswith("ambiguous"):
+        return False
+    safety = payload.get("safety")
+    if not isinstance(safety, dict):
+        return False
+    if safety.get("apply_blockers") or safety.get("repository_conflicts"):
+        return False
+    if str(safety.get("ambiguity_status") or "").startswith("ambiguous"):
+        return False
+    key_type, _, key_value = cache_key.partition(":")
+    if key_type == "mbid":
+        return bool(result.musicbrainz_recording_id) and result.musicbrainz_recording_id.casefold() == key_value
+    if key_type == "isrc":
+        return normalize_valid_isrc(result.isrc) == key_value
+    if key_type == "fingerprint":
+        return result.identity_tier == "fingerprint" or result.source.startswith("acoustid")
+    return False
 
 
 def _safe_float(value: Any) -> float | None:

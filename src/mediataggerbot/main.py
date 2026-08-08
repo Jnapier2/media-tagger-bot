@@ -5,17 +5,25 @@ import json
 import logging
 import os
 import shutil
+import sys
 import time
 import uuid
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from . import __version__
+from . import __build_id__, __package_id__, __version__
 from .cache import JsonCache
-from .apply_readiness import probe_apply_readiness, readiness_blocks_apply
 from .asset_metadata import write_run_asset_manifest
 from .canonicalization import safe_apply_conflict
+from .computer_context import (
+    detect_computer_context,
+    legacy_lock_path,
+    local_lock_path,
+    local_stop_request_path,
+    stop_request_path_for_lock,
+    safe_computer_label,
+)
 from .config import (
     AppConfig,
     copy_example_config_if_missing,
@@ -29,14 +37,26 @@ from .fingerprint import fingerprint_backend_available, fingerprint_backend_stat
 from .genre import classify_genre
 from .launcher_attestation import build_launcher_attestation
 from .logging_setup import setup_logging
-from .models import GenreResult, MatchResult, MediaFile, PlanResult, ScanCoverage, dataclass_to_jsonable
-from .operation_journal import OperationJournal
-from .rename import build_sidecar_path, build_target_path
+from .models import MatchResult, MediaFile, PlanResult, ScanCoverage, dataclass_to_jsonable
+from .operation_journal import OperationJournal, write_failed_operations_report
+from .rename import TargetCollisionError, build_sidecar_path, build_target_path
 from .reporting import write_reports
-from .project_repair import build_project_drift_status, quarantine_legacy_launchers
-from .runtime_state import last_exit_matches_run, write_run_exit_report, write_run_status
-from .single_instance import SingleInstanceLock
+from .project_repair import archive_stale_release_artifacts, build_project_drift_status, quarantine_legacy_launchers
+from .runtime_state import (
+    clear_mutation_recovery_review,
+    finalize_abandoned_run_from_lock,
+    last_exit_matches_run,
+    mutation_recovery_review_status,
+    write_run_exit_report,
+    write_run_status,
+)
+from .single_instance import LockBusyError, SingleInstanceLock, find_active_same_host_lock
 from .run_control import check_graceful_stop, clear_graceful_stop, request_graceful_stop
+from .package_identity import (
+    verify_runtime_identity,
+    write_identity_gate_support_export,
+    write_runtime_identity_status,
+)
 from .pathing import (
     build_input_assurance,
     build_path_status,
@@ -44,12 +64,18 @@ from .pathing import (
     update_media_root_in_config,
     write_repair_report,
 )
-from .timeutil import now_utc, timestamp_for_filename
-from .utils import write_json_atomic
+from .timeutil import new_run_id, now_utc, timestamp_for_filename
+from .utils import which, write_json_atomic
 
 LOG = logging.getLogger(__name__)
 
 MODES = ["preflight", "scan-only", "dry-run", "apply-safe", "apply-all", "diagnostics", "rollback", "set-root", "repair", "validate-config", "request-stop"]
+
+
+
+
+class RecoveryReviewRequiredError(RuntimeError):
+    """A prior mutating run was recovered and must be dry-run reviewed first."""
 
 
 # Test/embedding injection hook. Runtime scanner import remains lazy so diagnostics,
@@ -72,6 +98,68 @@ def main(argv: list[str] | None = None) -> int:
     prepend_local_tool_paths(project_root)
 
     requested_mode = args.mode or "dry-run"
+    run_id = new_run_id(requested_mode)
+
+    # v2.17.5 runtime-release identity gate: establish a local log first, then
+    # verify immutable release bytes before runtime config/credentials are read.
+    # This bootstrap path is standard-library-only and never touches user media.
+    log_path = setup_logging(project_root / "logs", run_id, verbose=args.verbose)
+    LOG.info(
+        "MediaTaggerBot v%s build=%s run_id=%s requested_mode=%s project_root=%s",
+        __version__,
+        __build_id__,
+        run_id,
+        requested_mode,
+        project_root,
+    )
+    identity_status = verify_runtime_identity(
+        project_root,
+        runtime_version=__version__,
+        runtime_build_id=__build_id__,
+        runtime_package_id=__package_id__,
+    )
+    try:
+        identity_status_path = write_runtime_identity_status(project_root, identity_status)
+    except Exception as exc:
+        identity_status.setdefault("mismatches", []).append({
+            "type": "runtime_identity_evidence_write_failed",
+            "path": "state/runtime_identity_status.json",
+            "error": f"{type(exc).__name__}: {exc}",
+        })
+        identity_status["mismatch_count"] = len(identity_status["mismatches"])
+        identity_status["gate_result"] = "BLOCK"
+        identity_status["authenticated_activity_permitted"] = False
+        identity_status_path = project_root / "state" / "runtime_identity_status.json"
+    if identity_status.get("gate_result") != "PASS":
+        LOG.error(
+            "Runtime release identity gate BLOCK: mismatches=%s; runtime config and credentials were not loaded.",
+            identity_status.get("mismatch_count"),
+        )
+        try:
+            support_zip = write_identity_gate_support_export(
+                project_root, run_id, requested_mode, identity_status, log_path=log_path
+            )
+            print(f"Support Export20: {support_zip}")
+        except Exception as exc:
+            LOG.error("Identity-block Support Export20 failed: %s: %s", type(exc).__name__, exc)
+            support_zip = None
+        print("ERROR: Runtime release identity/integrity verification failed closed.")
+        print("No runtime config, credentials, authenticated API activity, or media mutation was started.")
+        print(f"Identity status: {identity_status_path}")
+        for mismatch in identity_status.get("mismatches", [])[:12]:
+            print(f"  - {mismatch.get('type')}: {mismatch.get('path') or mismatch.get('source') or 'release identity'}")
+        if identity_status.get("mismatch_count", 0) > 12:
+            print(f"  - ... {identity_status['mismatch_count'] - 12} additional mismatch(es) recorded in the status file.")
+        print("Recovery: re-extract the complete verified release ZIP into a fresh local folder, then rerun Preflight.")
+        return 6
+
+    LOG.info(
+        "Runtime release identity gate PASS: managed=%s verified=%s duration_ms=%s; authenticated activity may proceed.",
+        identity_status.get("package_managed_count"),
+        identity_status.get("package_verified_count"),
+        identity_status.get("gate_duration_ms"),
+    )
+
     default_config_path = (project_root / "config" / "config.toml").resolve()
     if args.config:
         supplied_config = Path(args.config).expanduser()
@@ -80,9 +168,9 @@ def main(argv: list[str] | None = None) -> int:
         config_path = default_config_path
 
     # Diagnostics and request-stop are control-plane paths: they never create a
-    # venv, install packages, repair config, or bootstrap config.toml.  Normal
+    # venv, install packages, repair config, or bootstrap config.toml. Normal
     # modes may create only the shipped default config, never an arbitrary custom
-    # config path.
+    # config path. Package identity has already passed before this point.
     if requested_mode not in {"diagnostics", "request-stop"} and not args.config:
         copy_example_config_if_missing(project_root, default_config_path)
 
@@ -94,9 +182,6 @@ def main(argv: list[str] | None = None) -> int:
         args.config_backup or os.environ.get("MEDIATAGGERBOT_CONFIG_BACKUP", "")
     )
 
-    # Config loading is deliberately resilient. A narrowly recognized Windows-path
-    # quoting error is backed up and repaired. Diagnostics, repair, and request-stop
-    # can start with an in-memory fallback even when the TOML is otherwise malformed.
     config = load_config_resilient(project_root=project_root, config_path=config_path, mode=requested_mode)
     if root_override and requested_mode != "set-root":
         config.data.setdefault("paths", {})["media_root"] = root_override
@@ -106,13 +191,14 @@ def main(argv: list[str] | None = None) -> int:
             config.validation_errors.append("--limit must be between 0 and 10000000.")
     config.validation_errors = list(dict.fromkeys(config.validation_errors))
     if config.validation_errors:
-        # Never allow invalid config or invalid CLI overrides to redirect project-owned
-        # logs/state/diagnostics before preflight can fail closed.
         config.safe_runtime_dirs = True
         config.load_status["safe_runtime_dirs_active"] = True
         config.load_status["semantic_validation"] = "failed"
     mode = args.mode or str(config.get("processing.default_mode", "dry-run"))
-    run_id = f"{timestamp_for_filename()}_{mode.replace('-', '_')}"
+    computer_context = detect_computer_context(config)
+
+    # Rebind the same run log to the configured project-local log directory and
+    # configured rotation limits only after package identity has passed.
     log_path = setup_logging(
         config.logs_dir,
         run_id,
@@ -120,27 +206,44 @@ def main(argv: list[str] | None = None) -> int:
         max_bytes=_safe_bootstrap_int(config, "processing.log_max_bytes", 10_000_000, 100_000, 1_000_000_000),
         backup_count=_safe_bootstrap_int(config, "processing.log_backup_count", 3, 1, 100),
     )
-    LOG.info("MediaTaggerBot v%s run_id=%s mode=%s project_root=%s", __version__, run_id, mode, config.project_root)
+    if config.state_dir.resolve() != (project_root / "state").resolve():
+        write_json_atomic(config.state_dir / "runtime_identity_status.json", identity_status)
+    LOG.info("Runtime identity status: %s", identity_status_path)
     LOG.info("Config load status: %s", config.load_status.get("status", "unknown"))
+    LOG.info(
+        "Computer context: %s advisory_only=%s detection=%s",
+        safe_computer_label(computer_context),
+        computer_context.get("advisory_only"),
+        computer_context.get("detection_source"),
+    )
     for warning in config.warnings:
         LOG.warning(warning)
 
-    launcher_attestation = build_launcher_attestation(config.project_root, __version__)
+    launcher_attestation = build_launcher_attestation(config.project_root, __version__, app_build_id=__build_id__)
     if launcher_attestation.get("launcher_environment_present") and not launcher_attestation.get("safe_to_process"):
         LOG.error("Launcher attestation mismatch: %s", launcher_attestation.get("reasons"))
 
+    current_lock_path = local_lock_path(config.state_dir, computer_context)
     lock = SingleInstanceLock(
-        config.state_dir / "mediataggerbot.lock",
+        current_lock_path,
         stale_after_seconds=_safe_bootstrap_int(
             config, "processing.single_instance_stale_after_seconds", 86400, 60, 31_536_000
         ),
         heartbeat_seconds=_safe_bootstrap_int(
             config, "processing.single_instance_heartbeat_seconds", 30, 5, 3600
         ),
+        dead_owner_grace_seconds=_safe_bootstrap_int(
+            config, "processing.single_instance_dead_owner_grace_seconds", 30, 5, 600
+        ),
         run_id=run_id,
         mode=mode,
+        computer_id=str(computer_context.get("canonical_id") or "PC-UNKNOWN"),
+        legacy_lock_paths=list(config.state_dir.glob("mediataggerbot*.lock")),
     )
-    generic_outputs: dict[str, str | Path] = {"log": log_path}
+    generic_outputs: dict[str, str | Path] = {
+        "log": log_path,
+        "runtime_identity_status": identity_status_path,
+    }
     try:
         # Every mode that can update config, project files, state, reports, or media
         # acquires the same owner-aware lock before publishing live run status.
@@ -148,6 +251,20 @@ def main(argv: list[str] | None = None) -> int:
         # they can inspect or stop an active long run without clobbering its state.
         if mode not in {"diagnostics", "request-stop"}:
             lock.acquire()
+            if lock.recovery_events:
+                for index, recovery_event in enumerate(lock.recovery_events, start=1):
+                    recovered_outputs = finalize_abandoned_run_from_lock(
+                        config,
+                        recovery_event,
+                        current_run_id=run_id,
+                        current_mode=mode,
+                    )
+                    for key, value in recovered_outputs.items():
+                        generic_outputs[f"stale_lock_recovery_{index}_{key}"] = value
+                LOG.warning(
+                    "Recovered %s stale same-computer lock(s); evidence was preserved and no media was changed by recovery.",
+                    len(lock.recovery_events),
+                )
             write_run_status(config, run_id, mode, "running", "startup", 0, None)
 
         if (
@@ -238,6 +355,61 @@ def main(argv: list[str] | None = None) -> int:
         if asset_paths:
             print(f"Asset manifest: {asset_paths.get('asset_manifest_json')}")
         return exit_code
+    except RecoveryReviewRequiredError as exc:
+        LOG.warning("Mutating mode blocked pending recovery dry-run: %s", exc)
+        blocked_outputs = dict(generic_outputs)
+        try:
+            diag = write_diagnostics_export(config, run_id, mode, log_path=log_path)
+            blocked_outputs["diagnostics_zip"] = diag
+        except Exception as diag_exc:
+            blocked_outputs["diagnostics_error"] = str(diag_exc)
+        write_run_status(
+            config, run_id, mode, "blocked", "recovery_dry_run_required", shutdown_reason="recovery_review_gate"
+        )
+        write_run_exit_report(
+            config,
+            run_id,
+            mode,
+            exit_code=5,
+            terminal_status="blocked_recovery_dry_run_required",
+            completion_class="blocked_before_mutation",
+            skipped_deferred_blocked=[str(exc)],
+            exact_outputs=blocked_outputs,
+            safest_next_action="Run a complete Dry-run. It will clear the recovery marker without changing media.",
+            details={"recovery_review": mutation_recovery_review_status(config)},
+            update_last=True,
+        )
+        _write_asset_manifest_best_effort(config, run_id, mode, "blocked_recovery_dry_run_required")
+        print("Apply was blocked because a prior mutating run ended without normal finalization.")
+        print("Run Dry-run once; successful finalization clears the recovery marker without changing media.")
+        return 5
+    except LockBusyError as exc:
+        LOG.warning("Mode blocked by an active same-computer run: %s", exc)
+        busy_outputs = dict(generic_outputs)
+        if mode != "diagnostics":
+            try:
+                diag = write_diagnostics_export(config, run_id, mode, log_path=log_path)
+                busy_outputs["diagnostics_zip"] = diag
+            except Exception as diag_exc:
+                busy_outputs["diagnostics_error"] = str(diag_exc)
+        write_run_exit_report(
+            config,
+            run_id,
+            mode,
+            exit_code=4,
+            terminal_status="blocked_active_same_computer_run",
+            completion_class="blocked_before_start",
+            skipped_deferred_blocked=["The selected mode did not start because a verified same-computer owner lock remained active."],
+            actual_timeouts_errors=[],
+            exact_outputs=busy_outputs,
+            safest_next_action="Use Advanced > Request stop, or allow the active run to finish. Dead-owner locks recover automatically after the short safety grace.",
+            details={"lock_status": exc.status},
+            update_last=False,
+        )
+        _write_asset_manifest_best_effort(config, run_id, mode, "blocked_active_same_computer_run")
+        print("MediaTaggerBot did not start because another run is active on this computer.")
+        print("Use Advanced > Request stop, or allow that run to finish.")
+        return 4
     except KeyboardInterrupt:
         LOG.warning("Interrupted by user")
         if lock.acquired:
@@ -315,10 +487,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_request_stop(config: AppConfig, run_id: str, log_path: Path) -> int:
+    computer_context = detect_computer_context(config)
+    lock_path = local_lock_path(config.state_dir, computer_context)
+    legacy_path = legacy_lock_path(config.state_dir)
+    # Prefer the current profile-scoped lock. Fall back to the legacy lock only
+    # when it is the active same-computer owner from an older release.
+    stale_after = int(config.get("processing.single_instance_stale_after_seconds", 86400))
+    dead_owner_grace = int(config.get("processing.single_instance_dead_owner_grace_seconds", 30))
+    selected_lock, _selected_status = find_active_same_host_lock(
+        config.state_dir,
+        lock_path,
+        stale_after,
+        dead_owner_grace,
+    )
     result = request_graceful_stop(
         config.state_dir,
-        config.state_dir / "mediataggerbot.lock",
-        int(config.get("processing.single_instance_stale_after_seconds", 86400)),
+        selected_lock,
+        stale_after,
+        request_path=stop_request_path_for_lock(config.state_dir, selected_lock),
+        dead_owner_grace_seconds=dead_owner_grace,
     )
     out_path = config.exports_dir / f"graceful_stop_request_{run_id}.json"
     write_json_atomic(out_path, result)
@@ -387,14 +574,22 @@ def run_set_root(config: AppConfig, new_root: str, run_id: str, log_path: Path) 
 
 def run_repair(config: AppConfig, run_id: str, log_path: Path) -> int:
     cleanup = quarantine_legacy_launchers(config.project_root, __version__)
+    stale_archive = archive_stale_release_artifacts(config.project_root, __version__)
     drift = build_project_drift_status(config.project_root, __version__)
     report_path = write_repair_report(
         config,
         run_id,
         project_drift=drift,
-        cleanup_result=cleanup,
+        cleanup_result={"legacy_launchers": cleanup, "stale_release_artifacts": stale_archive},
     )
-    diag = write_diagnostics_export(config, run_id, "repair", log_path=log_path, report_paths={"repair_report": report_path})
+    repair_output_dir = config.exports_dir / run_id
+    failed_operations = write_failed_operations_report(
+        config.state_dir / "operation_journal.sqlite3", repair_output_dir, run_id
+    )
+    repair_reports: dict[str, Path] = {"repair_report": report_path}
+    if failed_operations is not None:
+        repair_reports["failed_operations_csv"] = failed_operations
+    diag = write_diagnostics_export(config, run_id, "repair", log_path=log_path, report_paths=repair_reports)
     status = build_path_status(config)
     invalid = config.load_status.get("status") == "fallback_invalid_config"
     semantic_invalid = bool(config.validation_errors)
@@ -405,9 +600,13 @@ def run_repair(config: AppConfig, run_id: str, log_path: Path) -> int:
         print(f"Legacy launcher quarantined with checksum evidence: {cleanup.get('manifest', '')}")
     if cleanup.get("errors"):
         print(f"Legacy launcher cleanup had {len(cleanup['errors'])} error(s); inspect the repair report.")
+    if stale_archive.get("moved"):
+        print(f"Stale release artifacts archived reversibly: {stale_archive.get('manifest', '')}")
+    if stale_archive.get("errors"):
+        print(f"Stale artifact archival had {len(stale_archive['errors'])} error(s); inspect the repair report.")
     if invalid:
         print("Config remains invalid after the narrow Windows-path repair attempt.")
-        print("Use option 8 Set media root to rebuild from the shipped example while preserving a backup.")
+        print("Use Advanced > Set media root to rebuild from the shipped example while preserving a backup.")
     if semantic_invalid:
         print("Config semantic errors still block processing:")
         for error in config.validation_errors:
@@ -419,9 +618,15 @@ def run_repair(config: AppConfig, run_id: str, log_path: Path) -> int:
     print(f"Project drift status: {drift['status']} findings={drift['finding_count']}")
     print(f"Input assurance: media_root={assurance['paths.media_root']['status']} mapped={assurance['paths.media_root']['mapped_to_resolved_path'] or 'not_set'}")
     print(f"Repair report: {report_path}")
+    if failed_operations is not None:
+        print(f"Failed-operation review: {failed_operations}")
+    recovery_review = mutation_recovery_review_status(config)
+    if recovery_review.get("required"):
+        print("Recovery review required: run a complete Dry-run before Apply-safe or Apply-all.")
+        print(f"Recovery marker: {recovery_review.get('path')}")
     print(f"Diagnostics ZIP: {diag}")
     print(f"Log: {log_path}")
-    return 2 if invalid or semantic_invalid or cleanup.get("errors") else 0
+    return 2 if invalid or semantic_invalid or cleanup.get("errors") or stale_archive.get("errors") else 0
 
 
 def run_validate_config(config: AppConfig, backup_raw: str, run_id: str, log_path: Path) -> int:
@@ -501,15 +706,6 @@ def run_validate_config(config: AppConfig, backup_raw: str, run_id: str, log_pat
     return 2
 
 
-def build_credential_status(config: AppConfig) -> dict[str, bool]:
-    """Return configuration state without returning or logging credential values."""
-    return {
-        "acoustid_configured": bool(config.get("apis.acoustid_client_key")),
-        "lastfm_configured": bool(config.get("apis.lastfm_api_key")),
-        "discogs_configured": bool(config.get("apis.discogs_user_token")),
-    }
-
-
 def run_preflight(config: AppConfig, run_id: str, log_path: Path) -> int:
     summary = build_environment_summary(config, run_id, "preflight")
     media_root = config.media_root
@@ -517,13 +713,35 @@ def run_preflight(config: AppConfig, run_id: str, log_path: Path) -> int:
     summary["media_root_exists"] = bool(media_root and media_root.exists())
     summary["path_status"] = build_path_status(config)
     summary["input_assurance"] = build_input_assurance(config)
-    summary["credential_status"] = build_credential_status(config)
+    summary["api_keys"] = {
+        "acoustid_client_key": "present" if config.get("apis.acoustid_client_key") else "missing",
+        "lastfm_api_key": "present" if config.get("apis.lastfm_api_key") else "missing",
+        "discogs_user_token": "present" if config.get("apis.discogs_user_token") else "missing",
+    }
     summary["effective_config_redacted"] = redacted_effective_config(config)
     preflight_path = config.exports_dir / f"preflight_{run_id}.json"
     write_json_atomic(preflight_path, summary)
 
     print("Preflight complete.")
     print(f"Project root: {config.project_root}")
+    computer = summary.get("computer_context", {})
+    print(
+        "Computer: "
+        f"{computer.get('display_name', 'Unknown computer')} "
+        f"({computer.get('canonical_id', 'PC-UNKNOWN')}) "
+        f"detection={computer.get('detection_source', 'unknown')} advisory_only=True"
+    )
+    if computer.get("performance_hint") and computer.get("performance_hint") != "disabled":
+        print(f"Computer hint: {computer.get('performance_hint')}")
+    identity = summary.get("runtime_release_identity", {})
+    print(
+        "Runtime release identity: "
+        f"{identity.get('gate_result', 'UNKNOWN')} "
+        f"version={identity.get('runtime_version', 'unknown')} "
+        f"build={identity.get('runtime_build_id', 'unknown')} "
+        f"managed={identity.get('package_verified_count', 0)}/{identity.get('package_managed_count', 0)} "
+        f"mismatches={identity.get('mismatch_count', 0)} pre_auth=True"
+    )
     print(f"Config: {config.config_path}")
     print(f"Launcher: BAT direct Python | legacy PowerShell present={summary['launcher_status']['legacy_powershell_launcher_present']}")
     launcher_attestation = summary["launcher_status"]["attestation"]
@@ -565,18 +783,9 @@ def run_preflight(config: AppConfig, run_id: str, log_path: Path) -> int:
     )
     print(f"ffprobe: {summary['tools']['ffprobe'] or 'missing'}")
     print(f"exiftool: {summary['tools']['exiftool'] or 'missing/optional'}")
-    print(
-        "AcoustID credential configured: "
-        f"{'yes' if summary['credential_status']['acoustid_configured'] else 'no'}"
-    )
-    print(
-        "Last.fm credential configured: "
-        f"{'yes' if summary['credential_status']['lastfm_configured'] else 'no'}"
-    )
-    print(
-        "Discogs credential configured: "
-        f"{'yes' if summary['credential_status']['discogs_configured'] else 'no'}"
-    )
+    print(f"AcoustID key: {summary['api_keys']['acoustid_client_key']}")
+    print(f"Last.fm key: {summary['api_keys']['lastfm_api_key']}")
+    print(f"Discogs token: {summary['api_keys']['discogs_user_token']}")
     canonical = config.section("canonicalization")
     print(
         "Canonical names: "
@@ -591,27 +800,45 @@ def run_preflight(config: AppConfig, run_id: str, log_path: Path) -> int:
         print(f"  CONFIG ERROR: {error}")
     print(f"Preflight JSON: {preflight_path}")
     print(f"Log: {log_path}")
+    media_status = summary["path_status"]["media_root"]
+    media_relationship = summary["path_status"]["root_relationship"]
+    media_target_blocked = (
+        not bool(media_status.get("is_set"))
+        or not bool(media_status.get("is_dir"))
+        or bool(media_relationship.get("media_root_equals_project_root"))
+    )
     if (
         config.load_status.get("status") == "fallback_invalid_config"
         or config.validation_errors
         or not bool(launcher_attestation.get("safe_to_process", True))
+        or media_target_blocked
     ):
         diag = write_diagnostics_export(config, run_id, "preflight", log_path=log_path, report_paths={"preflight": preflight_path})
         if config.load_status.get("status") == "fallback_invalid_config":
             print("Preflight blocked: config TOML is invalid; safe fallback was used and no media work started.")
         elif config.validation_errors:
             print("Preflight blocked: semantic config validation failed; no media work started.")
-        else:
+        elif not bool(launcher_attestation.get("safe_to_process", True)):
             print(
                 "Preflight blocked: BAT launcher version/root/transcript attestation mismatched this package; "
                 "extract a clean release folder before processing media."
             )
+        elif not bool(media_status.get("is_set")):
+            print("Preflight blocked: media root is not set. Use Advanced -> Set media root.")
+        elif not bool(media_status.get("is_dir")):
+            print("Preflight blocked: media root is missing or is not a directory.")
+        else:
+            print("Preflight blocked: media root must not be the bot project folder.")
         print(f"Diagnostics ZIP: {diag}")
         return 2
     return 0
 
 
-def build_clients(config: AppConfig, cache: JsonCache) -> tuple[Any | None, Any | None, Any | None, Any | None]:
+def build_clients(
+    config: AppConfig,
+    cache: JsonCache,
+    stop_check: Any | None = None,
+) -> tuple[Any | None, Any | None, Any | None, Any | None]:
     from .databases import AcoustIDClient, DiscogsClient, LastFmClient, MusicBrainzClient
 
     apis = config.section("apis")
@@ -639,6 +866,7 @@ def build_clients(config: AppConfig, cache: JsonCache) -> tuple[Any | None, Any 
             retry_backoff_seconds=backoff,
             connect_timeout_seconds=connect_timeout,
             retry_jitter_seconds=jitter,
+            stop_check=stop_check,
         )
     musicbrainz = None
     if bool(apis.get("enable_musicbrainz", True)):
@@ -652,6 +880,7 @@ def build_clients(config: AppConfig, cache: JsonCache) -> tuple[Any | None, Any 
             retry_backoff_seconds=backoff,
             connect_timeout_seconds=connect_timeout,
             retry_jitter_seconds=jitter,
+            stop_check=stop_check,
         )
     lastfm = None
     if bool(apis.get("enable_lastfm", True)):
@@ -666,6 +895,7 @@ def build_clients(config: AppConfig, cache: JsonCache) -> tuple[Any | None, Any 
             retry_backoff_seconds=backoff,
             connect_timeout_seconds=connect_timeout,
             retry_jitter_seconds=jitter,
+            stop_check=stop_check,
         )
     discogs = None
     if bool(apis.get("enable_discogs", False)):
@@ -680,6 +910,7 @@ def build_clients(config: AppConfig, cache: JsonCache) -> tuple[Any | None, Any 
             retry_backoff_seconds=backoff,
             connect_timeout_seconds=connect_timeout,
             retry_jitter_seconds=jitter,
+            stop_check=stop_check,
         )
     return acoustid, musicbrainz, lastfm, discogs
 
@@ -701,6 +932,8 @@ def run_processing_mode(
     if scanner_fn is None:
         from .scanner import scan_media_root as scanner_fn
 
+    from .apply_readiness import clear_readiness_probe_cache, probe_apply_readiness, readiness_blocks_apply
+
     media_root = config.media_root
     if not media_root:
         raise RuntimeError("Media root is not set. Use BAT menu option 8 or pass --root \"D:\\Your Media Folder\".")
@@ -712,22 +945,38 @@ def run_processing_mode(
     if not bool(config.get("processing.same_folder_output", True)):
         raise RuntimeError("processing.same_folder_output=false is unsupported; this build intentionally renames in the source folder.")
 
+    recovery_review = mutation_recovery_review_status(config)
+    if mode in {"apply-safe", "apply-all"} and recovery_review.get("required"):
+        raise RecoveryReviewRequiredError(
+            "A prior mutating run ended without normal finalization. Run a complete Dry-run first; "
+            "the dry-run will clear the recovery-review marker without changing media. "
+            f"Marker: {recovery_review.get('path')}"
+        )
+
     output_dir = config.exports_dir / run_id
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=False)
+    clear_readiness_probe_cache()
     started = time.monotonic()
+    noncritical_finalization_errors: list[str] = []
     owner_token = lock.owner_token if lock else ""
+    computer_context = detect_computer_context(config)
+    stop_request_path = (
+        stop_request_path_for_lock(config.state_dir, lock.lock_path)
+        if lock is not None
+        else local_stop_request_path(config.state_dir, computer_context)
+    )
 
     # Remove only a stale request from an earlier owner. A request matching this run is
     # preserved and observed at the next safe checkpoint.
     if owner_token:
-        matched, stop_payload = check_graceful_stop(config.state_dir, owner_token)
+        matched, stop_payload = check_graceful_stop(config.state_dir, owner_token, request_path=stop_request_path)
         if not matched and stop_payload.get("status") == "stale_owner_mismatch":
-            clear_graceful_stop(config.state_dir)
+            clear_graceful_stop(config.state_dir, request_path=stop_request_path)
 
     def stop_requested() -> bool:
         if not owner_token:
             return False
-        matched, _payload = check_graceful_stop(config.state_dir, owner_token)
+        matched, _payload = check_graceful_stop(config.state_dir, owner_token, request_path=stop_request_path)
         return matched
 
     def progress_checkpoint(phase: str, processed: int, total: int | None, relative_path: str) -> None:
@@ -779,13 +1028,24 @@ def run_processing_mode(
         shutdown_reason: str,
     ) -> int:
         reports = write_reports(plans, output_dir, run_id, mode, scan_coverage=scan_coverage, **report_kwargs)
+        failed_operations = write_failed_operations_report(
+            config.state_dir / "operation_journal.sqlite3", output_dir, run_id
+        )
+        if failed_operations is not None:
+            reports["failed_operations_csv"] = failed_operations
         exit_details = {
             "processed_plans": len(plans),
             "discovered_media_files": scan_coverage.media_files_found,
             "scan_coverage": compact_scan_coverage(scan_coverage),
             "elapsed_seconds": round(time.monotonic() - started, 3),
+            "noncritical_finalization_errors": list(noncritical_finalization_errors),
         }
-        # Persist the truthful exit classification before diagnostics so the support bundle captures
+        completed_not_fully_verified = list(completed_not_fully_verified or [])
+        if noncritical_finalization_errors:
+            completed_not_fully_verified.append(
+                "One or more noncritical telemetry/state writes failed; core reports and media-operation evidence continued."
+            )
+        # Persist the truthful exit classification before diagnostics so Export20 captures
         # the current run rather than only the preceding run. Rewrite it once after the
         # diagnostic path is known.
         exact_outputs: dict[str, str | Path] = {**reports, "log": log_path}
@@ -805,7 +1065,28 @@ def run_processing_mode(
             safest_next_action=safest_next_action,
             details=exit_details,
         )
+        if mode == "dry-run" and scan_coverage.all_reachable_subfolders_checked:
+            clearance = clear_mutation_recovery_review(config, run_id)
+            if clearance is not None:
+                exact_outputs["mutation_recovery_review_clearance"] = clearance
+                reports["mutation_recovery_review_clearance"] = clearance
+                LOG.info("Cleared prior mutation-recovery review marker after complete dry-run: %s", clearance)
         reports_with_exit = {**reports, "run_exit_report": exit_report}
+        write_run_status(
+            config,
+            run_id,
+            mode,
+            terminal_status,
+            "finalizing_diagnostics_before_unlock",
+            len(plans),
+            scan_coverage.media_files_scanned,
+            shutdown_reason=shutdown_reason,
+            extra={
+                "scan_coverage": compact_scan_coverage(scan_coverage),
+                "exit_report": str(exit_report),
+                "diagnostic_capture_phase": "finalization_before_unlock",
+            },
+        )
         diag = write_diagnostics_export(config, run_id, mode, log_path=log_path, report_paths=reports_with_exit)
         exact_outputs.update({"diagnostics_zip": diag, "run_exit_report": exit_report})
         exit_report = write_run_exit_report(
@@ -836,7 +1117,7 @@ def run_processing_mode(
             extra={"scan_coverage": compact_scan_coverage(scan_coverage), "exit_report": str(exit_report)},
         )
         if owner_token:
-            clear_graceful_stop(config.state_dir, owner_token)
+            clear_graceful_stop(config.state_dir, owner_token, request_path=stop_request_path)
         if exit_code == 0:
             print_success(run_id, mode, reports, diag, len(plans), time.monotonic() - started, scan_coverage)
         else:
@@ -964,6 +1245,24 @@ def run_processing_mode(
         )
 
     if mode == "scan-only":
+        if scan_coverage.media_scan_errors:
+            return finalize(
+                inventory_plans,
+                scan_coverage,
+                exit_code=2,
+                terminal_status="completed_with_errors",
+                completion_class="partial_not_fully_verified",
+                completed_verified=[
+                    "Every reachable regular subfolder was traversed and a coverage proof was written.",
+                    "Inventory reports and Export20 diagnostics were integrity-tested and finalized.",
+                ],
+                completed_not_fully_verified=[
+                    f"{scan_coverage.media_scan_errors} media file(s) could not be fully inspected and remain review-only."
+                ],
+                actual_timeouts_errors=[f"media_scan_errors={scan_coverage.media_scan_errors}"],
+                safest_next_action="Review scan_path_errors and needs_review before relying on the inventory for mutation.",
+                shutdown_reason="completed_with_media_scan_errors",
+            )
         return finalize(
             inventory_plans,
             scan_coverage,
@@ -972,7 +1271,7 @@ def run_processing_mode(
             completion_class="completed_verified",
             completed_verified=[
                 "Recursive traversal completed and a coverage proof was written.",
-                "Inventory reports and bounded support diagnostics were integrity-tested and finalized.",
+                "Inventory reports and Export20 diagnostics were integrity-tested and finalized.",
             ],
             safest_next_action="Review the coverage status; continue to dry-run only when the intended subfolders were covered.",
             shutdown_reason="normal_exit",
@@ -1036,7 +1335,7 @@ def run_processing_mode(
             ttl_days=int(config.get("apis.cache_ttl_days", 365)),
             auto_recover=bool(config.get("processing.api_cache_auto_recover", True)),
         ) as cache:
-            clients = build_clients(config, cache)
+            clients = build_clients(config, cache, stop_check=stop_requested)
             matcher = Matcher(config, *clients, cache=cache)
             fingerprint_status = fingerprint_backend_status()
             do_fingerprint = (
@@ -1135,17 +1434,26 @@ def run_processing_mode(
                         if media.existing_subgenre:
                             raw_genre_terms.append(media.existing_subgenre)
                         genre = classify_genre(raw_genre_terms, config) if match.matched else None
-                        proposed_path = (
-                            build_target_path(
-                                media.path,
-                                match,
-                                genre,
-                                config,
-                                reserved_paths=reserved_targets,
-                            )
-                            if match.matched and genre
-                            else None
-                        )
+                        proposed_path = None
+                        if match.matched and genre:
+                            try:
+                                proposed_path = build_target_path(
+                                    media.path,
+                                    match,
+                                    genre,
+                                    config,
+                                    reserved_paths=reserved_targets,
+                                    allow_collision_suffix=(mode == "apply-all"),
+                                )
+                            except TargetCollisionError as collision:
+                                proposed_path = collision.target
+                                collision_evidence = inspect_target_collision(media, match, collision)
+                                match.evidence["target_collision"] = collision_evidence
+                                if "canonical_target_collision" not in match.apply_blockers:
+                                    match.apply_blockers.append("canonical_target_collision")
+                                match.notes.append(
+                                    "Canonical target already exists or was reserved; apply-safe/dry-run did not create a numbered suffix."
+                                )
                         # Dry-run doubles as a non-mutating apply-readiness preview for
                         # candidates that would otherwise qualify for apply-safe. Apply-safe
                         # repeats the probe immediately before mutation because locks can change.
@@ -1177,6 +1485,8 @@ def run_processing_mode(
                             apply_plan(plan, config, run_id, mode=mode, journal=journal)
                         elif not match.matched:
                             plan.status = "unmatched"
+                        elif "canonical_target_collision" in match.apply_blockers:
+                            plan.status = "target_collision_review_only"
                         elif mode == "dry-run":
                             plan.status = "dry_run"
                         else:
@@ -1209,8 +1519,13 @@ def run_processing_mode(
                         )
             finally:
                 if bool(config.get("processing.write_api_metrics", True)) and matcher is not None:
-                    write_api_metrics(config, run_id, clients, cache, matcher)
-                    api_metrics_written = True
+                    try:
+                        write_api_metrics(config, run_id, clients, cache, matcher)
+                        api_metrics_written = True
+                    except Exception as exc:
+                        message = f"api_metrics_write_failed:{type(exc).__name__}:{exc}"
+                        noncritical_finalization_errors.append(message)
+                        LOG.warning("Noncritical API telemetry write failed; finalization will continue: %s", exc)
     except KeyboardInterrupt:
         keyboard_interrupt_during_processing = True
         LOG.warning(
@@ -1230,7 +1545,12 @@ def run_processing_mode(
                 "created_utc": now_utc().isoformat(),
                 "status": "not_available_before_client_initialization",
             }
-            write_json_atomic(config.state_dir / "last_api_metrics.json", fallback)
+            try:
+                write_json_atomic(config.state_dir / "last_api_metrics.json", fallback)
+            except Exception as exc:
+                message = f"fallback_api_metrics_write_failed:{type(exc).__name__}:{exc}"
+                noncritical_finalization_errors.append(message)
+                LOG.warning("Noncritical fallback API telemetry write failed; finalization will continue: %s", exc)
 
     if keyboard_interrupt_during_processing:
         return finalize(
@@ -1248,7 +1568,7 @@ def run_processing_mode(
             skipped_deferred_blocked=[f"Up to {max(0, len(media_files) - len(plans))} file(s) did not reach a terminal plan."],
             actual_timeouts_errors=["KeyboardInterrupt/user interrupt"],
             safest_next_action=(
-                "Review the operation journal and partial exception reports. Use menu option 14 for future long-run stops, then rerun the same mode."
+                "Review the operation journal and partial exception reports. Use Advanced > Request graceful stop for future long runs, then rerun the same mode."
             ),
             shutdown_reason="keyboard_interrupt_controlled_finalization",
         )
@@ -1275,6 +1595,7 @@ def run_processing_mode(
         "apply_failed",
         "metadata_verification_failed",
         "embedded_metadata_write_failed",
+        "metadata_writer_unavailable",
         "source_changed_skipped",
         "write_readiness_blocked",
     }
@@ -1294,7 +1615,7 @@ def run_processing_mode(
         ]
         completed_not_fully_verified = [
             f"{hard_failures} file(s) ended in a hard failure/skip status; successful files remain journaled and verified.",
-            "Result accuracy depends on metadata-provider responses available during this run.",
+            "Live public repository correctness depends on the responses available during this run.",
         ]
         actual_errors = [
             "Per-file terminal failures: "
@@ -1304,7 +1625,7 @@ def run_processing_mode(
                 if status_counts.get(status, 0)
             )
         ]
-        safest_next = "Review needs_review, the operation journal, and exact error statuses before another mutating batch."
+        safest_next = "Review run_failures, failed_operations, target_collisions, and needs_review before another mutating batch."
         shutdown_reason = "completed_with_per_file_errors"
     elif warnings_count:
         exit_code = 0
@@ -1316,7 +1637,7 @@ def run_processing_mode(
         ]
         completed_not_fully_verified = [
             f"{warnings_count} applied file(s) completed with warnings.",
-            "Result accuracy depends on metadata-provider responses available during this run.",
+            "Live public repository correctness depends on the responses available during this run.",
         ]
         actual_errors = []
         safest_next = "Review applied_with_warning rows and archive the rollback manifest before another mutating batch."
@@ -1330,7 +1651,7 @@ def run_processing_mode(
             "Reports, diagnostics, API metrics, and run-exit evidence were finalized.",
         ]
         completed_not_fully_verified = (
-            ["Result accuracy depends on metadata-provider responses available during this run."]
+            ["Live public repository correctness depends on the responses available during this run."]
             if mode in {"dry-run", "apply-safe", "apply-all"}
             else []
         )
@@ -1380,6 +1701,10 @@ def decide_apply(
                 return False, "ambiguous_identity_review_only"
             if "prior_mediataggerbot_text_identity_requires_review" in blockers:
                 return False, "prior_text_identity_review_only"
+            if "canonical_target_collision" in blockers:
+                return False, "target_collision_review_only"
+            if "write_readiness_blocked" in blockers:
+                return False, "write_readiness_review_only"
             return False, "identity_safety_blocker_review_only"
         if (
             genre is not None
@@ -1412,10 +1737,13 @@ def apply_plan(
     mode: str,
     journal: OperationJournal | None = None,
 ) -> None:
-    from .metadata import embedded_metadata_supported, verify_metadata_write, write_metadata
+    from .metadata import verify_metadata_write, write_metadata
+    from .apply_readiness import probe_apply_readiness, readiness_blocks_apply
 
-    assert plan.proposed_path is not None
-    assert plan.genre is not None
+    if plan.proposed_path is None:
+        raise RuntimeError("Apply plan has no proposed path; mutation was not started.")
+    if plan.genre is None:
+        raise RuntimeError("Apply plan has no genre result; mutation was not started.")
     original_path = plan.media.path
     target_path = plan.proposed_path
     current_path = original_path
@@ -1442,7 +1770,11 @@ def apply_plan(
         readiness = probe_apply_readiness(original_path, target_path, config)
         plan.match.evidence["write_readiness_at_apply"] = readiness
         if readiness_blocks_apply(readiness):
-            plan.status = "write_readiness_blocked"
+            plan.status = (
+                "metadata_writer_unavailable"
+                if str(readiness.get("status") or "").startswith("blocked_metadata_writer_")
+                else "write_readiness_blocked"
+            )
             plan.error = (
                 "Apply readiness check blocked metadata/rename before mutation: "
                 + str(readiness.get("status") or "unknown")
@@ -1450,6 +1782,7 @@ def apply_plan(
             )
             return
         if journal is not None:
+            source_stat = original_path.stat()
             operation_id = journal.start(
                 original_path,
                 target_path,
@@ -1458,6 +1791,12 @@ def apply_plan(
                     "confidence": round(plan.match.confidence, 3),
                     "source": plan.match.source,
                     "identity_tier": plan.match.identity_tier,
+                    "source_identity": {
+                        "size_bytes": source_stat.st_size,
+                        "modified_ns": getattr(source_stat, "st_mtime_ns", None),
+                        "file_id": getattr(source_stat, "st_ino", None),
+                    },
+                    "expected_target_path": str(target_path),
                 },
             )
             plan.operation_id = operation_id
@@ -1486,6 +1825,7 @@ def apply_plan(
                 config,
                 sidecar_path=current_sidecar,
                 original_path=original_path,
+                writer_plan=readiness.get("metadata_writer_plan") if isinstance(readiness, dict) else None,
             )
             plan.metadata_written = wrote
             plan.sidecar_path = sidecar_written
@@ -1512,14 +1852,26 @@ def apply_plan(
             plan.metadata_verified = verified
             plan.rollback_record["metadata_verified"] = verified
             if journal and operation_id:
-                journal.update(operation_id, "metadata_verified" if verified else "metadata_verification_failed", details={"metadata_verification": verify_details})
+                metadata_stat = current_path.stat() if current_path.exists() else None
+                journal.update(
+                    operation_id,
+                    "metadata_verified" if verified else "metadata_verification_failed",
+                    details={
+                        "metadata_verification": verify_details,
+                        "post_metadata_identity": {
+                            "size_bytes": metadata_stat.st_size if metadata_stat else None,
+                            "modified_ns": getattr(metadata_stat, "st_mtime_ns", None) if metadata_stat else None,
+                            "file_id": getattr(metadata_stat, "st_ino", None) if metadata_stat else None,
+                        },
+                    },
+                )
 
             if error:
                 warning_messages.append(error)
             embedded_required = (
                 mode == "apply-safe"
                 and bool(config.get("processing.require_embedded_metadata_for_supported_formats_apply_safe", True))
-                and embedded_metadata_supported(current_path, config)
+                and bool((readiness.get("metadata_writer_plan") or {}).get("supported"))
             )
             if embedded_required and not wrote:
                 plan.status = "embedded_metadata_write_failed"
@@ -1607,6 +1959,11 @@ def apply_plan(
                 operation_id,
                 details={
                     "final_path": str(current_path),
+                    "final_identity": {
+                        "size_bytes": current_path.stat().st_size if current_path.exists() else None,
+                        "modified_ns": getattr(current_path.stat(), "st_mtime_ns", None) if current_path.exists() else None,
+                        "file_id": getattr(current_path.stat(), "st_ino", None) if current_path.exists() else None,
+                    },
                     "metadata_written": plan.metadata_written,
                     "metadata_verified": plan.metadata_verified,
                     "renamed": plan.renamed,
@@ -1622,11 +1979,48 @@ def apply_plan(
             journal.fail(operation_id, "apply_failed", str(exc), {"current_path": str(current_path)})
 
 
+def inspect_target_collision(media: MediaFile, match: MatchResult, collision: TargetCollisionError) -> dict[str, Any]:
+    evidence: dict[str, Any] = {
+        "status": "existing_target" if collision.target_exists else "reserved_by_another_plan",
+        "target_path": str(collision.target),
+        "target_exists": collision.target_exists,
+        "reserved": collision.reserved,
+        "probable_duplicate": False,
+        "stable_identifier_match": "",
+    }
+    if not collision.target_exists:
+        return evidence
+    try:
+        from .scanner import read_existing_tags
+
+        tags = read_existing_tags(collision.target)
+        target_mbid = str(tags.get("musicbrainz_recording_id") or "").strip()
+        target_isrc = str(tags.get("isrc") or "").strip().upper()
+        if match.musicbrainz_recording_id and target_mbid.casefold() == match.musicbrainz_recording_id.casefold():
+            evidence["probable_duplicate"] = True
+            evidence["stable_identifier_match"] = "musicbrainz_recording_id"
+        elif match.isrc and target_isrc == match.isrc.upper():
+            evidence["probable_duplicate"] = True
+            evidence["stable_identifier_match"] = "isrc"
+        evidence["target_artist"] = tags.get("artist") or ""
+        evidence["target_title"] = tags.get("title") or ""
+        evidence["target_duration_seconds"] = tags.get("duration_seconds")
+        if media.duration_seconds is not None and tags.get("duration_seconds") is not None:
+            evidence["duration_difference_seconds"] = round(
+                abs(float(media.duration_seconds) - float(tags["duration_seconds"])), 3
+            )
+    except Exception as exc:
+        evidence["inspection_error"] = f"{type(exc).__name__}: {exc}"
+    return evidence
+
+
 def verify_source_unchanged(media: MediaFile) -> tuple[bool, dict[str, Any]]:
     details: dict[str, Any] = {
         "path": str(media.path),
         "expected_size_bytes": media.size_bytes,
         "expected_modified_ns": media.modified_ns,
+        "expected_changed_ns": media.changed_ns,
+        "expected_file_id": media.file_id,
     }
     try:
         current = media.path.stat()
@@ -1637,13 +2031,23 @@ def verify_source_unchanged(media: MediaFile) -> tuple[bool, dict[str, Any]]:
         details["reason"] = f"Source file could not be re-statted after scan: {exc}"
         return False, details
     current_modified_ns = getattr(current, "st_mtime_ns", None)
+    current_changed_ns = getattr(current, "st_ctime_ns", None)
+    current_file_id = getattr(current, "st_ino", None)
     details["current_size_bytes"] = current.st_size
     details["current_modified_ns"] = current_modified_ns
+    details["current_changed_ns"] = current_changed_ns
+    details["current_file_id"] = current_file_id
     if current.st_size != media.size_bytes:
         details["reason"] = "Source file size changed after scan; stale plan skipped."
         return False, details
     if media.modified_ns is not None and current_modified_ns is not None and current_modified_ns != media.modified_ns:
         details["reason"] = "Source file modification time changed after scan; stale plan skipped."
+        return False, details
+    if media.changed_ns is not None and current_changed_ns is not None and current_changed_ns != media.changed_ns:
+        details["reason"] = "Source file change/creation time changed after scan; stale plan skipped."
+        return False, details
+    if media.file_id not in {None, 0} and current_file_id not in {None, 0} and current_file_id != media.file_id:
+        details["reason"] = "Source file identity changed after scan; stale plan skipped."
         return False, details
     details["reason"] = "unchanged"
     return True, details

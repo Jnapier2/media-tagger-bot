@@ -102,7 +102,7 @@ def test_title_only_text_search_is_never_apply_safe(tmp_path: Path):
     assert decide_apply("apply-safe", result, cfg(), mapped_genre())[0] is False
 
 
-def test_prior_text_search_identity_does_not_trust_embedded_mbid_or_fast_skip(tmp_path: Path):
+def test_prior_v052_text_identity_does_not_trust_embedded_mbid_or_fast_skip(tmp_path: Path):
     item = media(tmp_path, "Steelheart - All Your Love - Rock.mp3")
     item.existing_artist = "Steelheart"
     item.existing_title = "All Your Love"
@@ -239,6 +239,10 @@ def test_supported_sidecar_only_failure_does_not_rename_in_apply_safe(tmp_path: 
     monkeypatch.setattr("mediataggerbot.metadata.write_metadata", fake_write)
     monkeypatch.setattr("mediataggerbot.metadata.verify_metadata_write", lambda *_a, **_k: (True, {"verified": True}))
     monkeypatch.setattr("mediataggerbot.metadata.embedded_metadata_supported", lambda *_a, **_k: True)
+    monkeypatch.setattr(
+        "mediataggerbot.apply_readiness.probe_apply_readiness",
+        lambda *_a, **_k: {"status": "ready", "ready": True, "metadata_writer_plan": {"writer": "id3", "supported": True}},
+    )
 
     apply_plan(plan, config, "run", mode="apply-safe", journal=None)
 

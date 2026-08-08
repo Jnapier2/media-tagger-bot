@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Mapping
@@ -10,8 +11,10 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.11+ is required
     tomllib = None  # type: ignore
 
 from .launcher_attestation import build_launcher_attestation
+from .computer_context import detect_computer_context, legacy_lock_path, local_lock_path, stop_request_path_for_lock
+from .single_instance import find_active_same_host_lock
 from .run_control import request_graceful_stop
-from .timeutil import now_utc, timestamp_for_filename
+from .timeutil import new_run_id, now_utc
 from .utils import write_json_atomic
 
 
@@ -35,13 +38,26 @@ def run_portable_stop(
     state_dir, state_dir_status = _runtime_dir(project_root, paths.get("state_dir"), "state")
     exports_dir, exports_dir_status = _runtime_dir(project_root, paths.get("exports_dir"), "exports")
     stale_after = _bounded_int(processing.get("single_instance_stale_after_seconds"), 86400, 60, 31_536_000)
+    dead_owner_grace = _bounded_int(
+        processing.get("single_instance_dead_owner_grace_seconds"), 30, 5, 600
+    )
 
+    computer_context = detect_computer_context(raw_config=raw_config, env=env)
+    scoped_lock = local_lock_path(state_dir, computer_context)
+    legacy = legacy_lock_path(state_dir)
+    selected_lock, selected_status = find_active_same_host_lock(
+        state_dir, scoped_lock, stale_after, dead_owner_grace
+    )
+    selected_request_path = stop_request_path_for_lock(state_dir, selected_lock)
     result = request_graceful_stop(
         state_dir,
-        state_dir / "mediataggerbot.lock",
+        selected_lock,
         stale_after,
+        request_path=selected_request_path,
+        dead_owner_grace_seconds=dead_owner_grace,
     )
-    run_id = f"{timestamp_for_filename()}_request_stop_control"
+    result["selected_lock_same_host"] = bool(selected_status.get("same_host"))
+    run_id = new_run_id("request_stop_control")
     exports_dir.mkdir(parents=True, exist_ok=True)
     evidence_path = exports_dir / f"graceful_stop_request_{run_id}.json"
     result.update(
@@ -59,6 +75,7 @@ def run_portable_stop(
                 "state_dir": str(state_dir),
                 "exports_dir": str(exports_dir),
             },
+            "computer_context": computer_context,
             "runtime_setup_attempted": False,
             "virtual_environment_modified": False,
             "dependency_install_attempted": False,

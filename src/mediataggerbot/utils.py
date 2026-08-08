@@ -7,7 +7,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import time
 import unicodedata
 from contextlib import contextmanager
 from difflib import SequenceMatcher
@@ -104,7 +103,7 @@ def atomic_text_writer(
         finally:
             handle.close()
             handle = None
-        _replace_with_retry(temp_name, path)
+        os.replace(temp_name, path)
         _fsync_directory_best_effort(path.parent)
         temp_name = None
     finally:
@@ -139,7 +138,7 @@ def write_json_atomic(path: Path, data: Any) -> None:
             tmp.flush()
             os.fsync(tmp.fileno())
             temp_name = tmp.name
-        _replace_with_retry(temp_name, path)
+        os.replace(temp_name, path)
         _fsync_directory_best_effort(path.parent)
         temp_name = None
     finally:
@@ -165,17 +164,10 @@ def _fsync_directory_best_effort(directory: Path) -> None:
         os.close(fd)
 
 
-def _replace_with_retry(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None:
-    """Bound transient sharing violations without weakening atomic publication."""
-    attempts = 4
-    for attempt in range(attempts):
-        try:
-            os.replace(source, destination)
-            return
-        except PermissionError:
-            if attempt == attempts - 1:
-                raise
-            time.sleep(0.05 * (attempt + 1))
+def append_jsonl(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(data, ensure_ascii=False, default=str) + "\n")
 
 
 def sanitize_component(value: str, slash_replacement: str = "-", collapse_whitespace: bool = True) -> str:
@@ -196,11 +188,58 @@ def sanitize_component(value: str, slash_replacement: str = "-", collapse_whites
     return value
 
 
+
+def windows_utf16_units(value: str) -> int:
+    """Count Windows UTF-16 code units rather than Python code points."""
+    return len(str(value).encode("utf-16-le", errors="surrogatepass")) // 2
+
+
+def truncate_to_windows_utf16_units(value: str, max_units: int) -> str:
+    if max_units <= 0 or windows_utf16_units(value) <= max_units:
+        return value
+    low, high = 0, len(value)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if windows_utf16_units(value[:middle]) <= max_units:
+            low = middle
+        else:
+            high = middle - 1
+    return value[:low]
+
+
+def csv_safe_cell(value: Any) -> Any:
+    """Neutralize spreadsheet formulas while keeping JSONL as the raw record."""
+    if not isinstance(value, str):
+        return value
+    stripped = value.lstrip()
+    if stripped.startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
+
+
+def csv_safe_mapping(row: dict[str, Any]) -> dict[str, Any]:
+    return {key: csv_safe_cell(value) for key, value in row.items()}
+
 def truncate_filename_stem(stem: str, extension: str, max_length: int) -> str:
-    if len(stem) + len(extension) <= max_length:
+    if windows_utf16_units(stem) + windows_utf16_units(extension) <= max_length:
         return stem
-    allowed = max(20, max_length - len(extension))
-    return stem[:allowed].rstrip(" .")
+    allowed = max(20, max_length - windows_utf16_units(extension))
+    return truncate_to_windows_utf16_units(stem, allowed).rstrip(" .")
+
+
+def ensure_unique_path(target: Path, style: str = "space_parentheses_number") -> Path:
+    if not target.exists():
+        return target
+    if style != "space_parentheses_number":
+        raise RuntimeError(f"Unsupported collision_suffix_style: {style}")
+    parent = target.parent
+    stem = target.stem
+    suffix = target.suffix
+    for i in range(2, 10000):
+        candidate = parent / f"{stem} ({i}){suffix}"
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"Could not find available collision-free filename for {target}")
 
 
 def compact_list(values: Iterable[Any], limit: int = 12) -> list[str]:

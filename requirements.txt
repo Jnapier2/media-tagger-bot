@@ -1,0 +1,4 @@
+# Developer convenience only. The Windows BAT runtime uses requirements.lock.txt
+# plus the bundled wheels/ directory with --no-index and --require-hashes.
+requests==2.32.5
+mutagen==1.47.0
