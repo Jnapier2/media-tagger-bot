@@ -463,7 +463,7 @@ def _write_diagnostics_export_primary(
                 )
 
         doc_priorities = {
-            "TRANSFER_BRIEF.md": 1,
+            "RELEASE_NOTES.md": 1,
             "VERSION.txt": 2,
             "MANIFEST.json": 3,
             "PACKAGE_METADATA.json": 4,

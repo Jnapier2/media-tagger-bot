@@ -370,7 +370,7 @@ def write_identity_gate_support_export(
         path = root / name
         if path.is_file() and path.stat().st_size <= 2_000_000:
             candidates.append((name, path.read_bytes()))
-    for name in ("KNOWN_GOOD_STATE.md", "RUNBOOK.md", "TRANSFER_BRIEF.md"):
+    for name in ("KNOWN_GOOD_STATE.md", "RUNBOOK.md", "RELEASE_NOTES.md"):
         path = root / name
         if path.is_file() and path.stat().st_size <= 500_000:
             candidates.append((name, path.read_bytes()))
