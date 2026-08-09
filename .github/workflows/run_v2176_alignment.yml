@@ -1,0 +1,133 @@
+name: Run MediaTaggerBot v2.17.6 alignment
+
+on:
+  push:
+    branches:
+      - agent/v2176-entrypoint-output-hardening-20260809
+    paths:
+      - .github/workflows/run_v2176_alignment.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mediataggerbot-v2176-alignment-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  patch-verify-and-finalize:
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out the dedicated alignment branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/v2176-entrypoint-output-hardening-20260809
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.lock.txt
+            requirements-test.txt
+
+      - name: Extract, apply, and finalize the verified alignment payload
+        shell: pwsh
+        run: |
+          @'
+          import base64
+          import re
+          import zlib
+          from pathlib import Path
+
+          source = Path('.github/workflows/apply_v2176_alignment.yml').read_text(encoding='utf-8')
+          match = re.search(r"\$payload = '([^']+)'", source)
+          if not match:
+              raise SystemExit('Verified alignment payload was not found')
+          script = zlib.decompress(base64.b64decode(match.group(1))).decode('utf-8')
+          script = script.replace(
+              "'.github/workflows/apply_v2176_alignment.yml',",
+              "'.github/workflows/apply_v2176_alignment.yml',\n    '.github/workflows/run_v2176_alignment.yml',",
+              1,
+          )
+          path = Path('.github/scripts/apply_v2176_alignment.py')
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(script, encoding='utf-8', newline='\n')
+          '@ | python -
+          python .github/scripts/apply_v2176_alignment.py
+          python .github/scripts/apply_v2176_alignment.py --finalize
+
+      - name: Install exact runtime dependencies
+        run: "python -m pip install --only-binary=:all: --require-hashes -r requirements.lock.txt"
+
+      - name: Install project and exact test dependencies
+        run: |
+          python -m pip install --no-deps -e .
+          python -m pip install --only-binary=:all: -r requirements-test.txt
+
+      - name: Verify dependency consistency
+        run: python -m pip check
+
+      - name: Compile source and tests
+        run: python -m compileall -q src scripts tests
+
+      - name: Run complete regression and safety suite
+        run: python -m pytest -q
+
+      - name: Verify final runtime identity and managed files
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          from mediataggerbot import __build_id__, __version__
+          from mediataggerbot.package_identity import verify_runtime_identity
+          status = verify_runtime_identity(Path.cwd(), __version__, __build_id__)
+          print(status)
+          assert status['gate_result'] == 'PASS', status['mismatches']
+          assert status['package_verified_count'] == status['package_managed_count']
+          assert status['mismatch_count'] == 0
+          '@ | python -
+
+      - name: Verify public source and output-containment boundary
+        shell: pwsh
+        run: |
+          @'
+          import json
+          from pathlib import Path
+          root = Path.cwd()
+          source = (root / 'src/mediataggerbot/config.py').read_text(encoding='utf-8')
+          metadata = json.loads((root / 'PACKAGE_METADATA.json').read_text(encoding='utf-8'))
+          assert 'return Path.cwd().resolve()' not in source
+          assert metadata['parameter_package_sha256'] == '5dd39656afa5e8bcd0159e5ffa163d4de92a9ad4cb05c26aa63acf424ffe371f'
+          assert metadata['execution_identity']['canonical_entrypoint'] == 'Start_MediaTaggerBot.bat'
+          assert metadata['project_local_outputs']['caller_current_working_directory_is_authority'] is False
+          assert not (root / '.github/scripts/apply_v2176_alignment.py').exists()
+          assert not (root / '.github/workflows/apply_v2176_alignment.yml').exists()
+          assert not (root / '.github/workflows/run_v2176_alignment.yml').exists()
+          '@ | python -
+          git diff --check
+
+      - name: Commit only the final verified source tree
+        shell: pwsh
+        run: |
+          git add -A
+          if (git diff --cached --quiet) {
+            throw 'The v2.17.6 alignment produced no reviewable source changes.'
+          }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          $body = @'
+          Preserve v0.5.9 behavior while removing caller-CWD project-root fallback, recording the stable project-qualified entrypoint and project-local output roots, adding cross-working-directory regression tests, regenerating release manifests, and retaining the fail-closed runtime identity gate.
+
+          Copyright © 2026 Gateway Information Group LLC. All rights reserved.
+          '@
+          git commit -m "Align MediaTaggerBot with v2.17.6 entrypoint and output controls" -m $body
+          git push origin HEAD:agent/v2176-entrypoint-output-hardening-20260809
+
+# Copyright © 2026 Gateway Information Group LLC. All rights reserved.
