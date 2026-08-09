@@ -60,6 +60,10 @@ Private operating counts, media-library contents, credentials, support exports, 
 - Public source and CI do not claim every filesystem, codec, provider, or physical Windows environment has been exercised.
 - The repository is source code, not a signed Windows installer.
 
+## Portfolio and rights
+
+[Portfolio](https://jerry-napier-portfolio.netlify.app/) · [GitHub profile](https://github.com/Jnapier2)
+
 Copyright © 2026 Gateway Information Group LLC. All rights reserved.
 
 This notice does not create or replace a software license. Third-party components retain their respective notices and licenses.
