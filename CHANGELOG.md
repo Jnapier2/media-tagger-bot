@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.9 build MTB-0.5.9-PUBLIC-20260809-02
+
+- Aligned the stable `Start_MediaTaggerBot.bat` entrypoint and execution namespace with v2.17.6.
+- Removed the caller-current-directory fallback from project-root discovery.
+- Recorded project-local output roots and added cross-working-directory regression coverage.
+- Preserved the v0.5.9 user-facing version, runtime identity gate, dependency lock, and media-processing behavior.
+
 ## 0.5.9 — Runtime identity and integrity gate
 
 - Added pre-configuration release identity verification.

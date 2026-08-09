@@ -135,7 +135,7 @@ def test_main_orders_integrity_gate_before_config_and_credentials() -> None:
 def test_running_release_declares_package_version_and_build_identity() -> None:
     assert __package_id__ == "media-tagger-bot"
     assert __version__ == "0.5.9"
-    assert __build_id__ == "MTB-0.5.9-PUBLIC-20260808-01"
+    assert __build_id__ == "MTB-0.5.9-PUBLIC-20260809-02"
 
 
 

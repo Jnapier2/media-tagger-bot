@@ -4,12 +4,12 @@
   "canonical_project_name": "Music File Renaming Bot",
   "product_alias": "MediaTaggerBot",
   "version": "v0.5.9",
-  "build_id": "MTB-0.5.9-PUBLIC-20260808-01",
+  "build_id": "MTB-0.5.9-PUBLIC-20260809-02",
   "release_date": "2026-08-08",
   "distribution": "sanitized public source tree",
   "source_package_sha256": "7b359401997725ee93e2249f41fe6ed26fe7e74ca044141a87215956965b15ac",
-  "parameter_baseline": "ChatGPT New Thread Parameters v2.17.5",
-  "parameter_package_sha256": "655564a81adeff17ddad1e33b1453ae64bde0f405a41e740e3b3a7f65934d2e0",
+  "parameter_baseline": "chatgpt_new_thread_parameters_v2.17.6_canonical_entrypoints_project_local_outputs",
+  "parameter_package_sha256": "5dd39656afa5e8bcd0159e5ffa163d4de92a9ad4cb05c26aa63acf424ffe371f",
   "runtime_identity_gate": {
     "schema": "MediaTaggerBot.runtime_identity_status.v1",
     "control_files": [
@@ -38,5 +38,39 @@
     "private operating evidence",
     "bundled wheels",
     "internal handoff material"
-  ]
+  ],
+  "canonical_thread_title": "Music File Renaming Bot — Runtime Identity & Project-Local Outputs",
+  "generated_cdt": "2026-08-09 CDT / America/Chicago",
+  "source_baseline": "MediaTaggerBot v0.5.9 public source commit 46d117514bf4e8a529127549b23d37a0eb0fcf12",
+  "source_baseline_sha256": "46d117514bf4e8a529127549b23d37a0eb0fcf12",
+  "execution_identity": {
+    "namespace": "MediaTaggerBot",
+    "canonical_entrypoint": "Start_MediaTaggerBot.bat",
+    "entrypoint_is_stable_unversioned_project_qualified": true,
+    "backend_target": "python -m mediataggerbot",
+    "aliases": [],
+    "historical_entrypoints": [
+      {
+        "path": "Launch_MediaTaggerBot.ps1",
+        "status": "ignored-if-present-not-packaged"
+      }
+    ]
+  },
+  "project_local_outputs": {
+    "project_root_source": "canonical launcher directory or package source tree",
+    "caller_current_working_directory_is_authority": false,
+    "runtime_owned_roots": [
+      "config",
+      "logs",
+      "state",
+      "temp",
+      "cache",
+      "exports",
+      "diagnostics",
+      "reports",
+      "config/backups"
+    ],
+    "external_media_root_is_explicit_validated_user_input": true,
+    "cross_working_directory_test": "tests/test_v2176_entrypoint_outputs.py"
+  }
 }
