@@ -1,0 +1,112 @@
+name: Normalize MediaTaggerBot v2.17.6 manifest
+
+on:
+  push:
+    branches:
+      - agent/v2176-entrypoint-output-hardening-20260809
+    paths:
+      - .github/workflows/normalize_v2176_manifest.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mediataggerbot-v2176-manifest-normalization
+  cancel-in-progress: false
+
+jobs:
+  normalize-test-and-finalize:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the alignment branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/v2176-entrypoint-output-hardening-20260809
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.lock.txt
+            requirements-test.txt
+
+      - name: Reconcile managed-file evidence with Git-normalized bytes
+        shell: pwsh
+        run: |
+          @'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path.cwd()
+          manifest_path = root / 'MANIFEST.json'
+          csv_path = root / 'MANIFEST.csv'
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          record = next(row for row in manifest['files'] if row['path'] == 'MANIFEST.csv')
+          data = csv_path.read_bytes()
+          record['size_bytes'] = len(data)
+          record['sha256'] = hashlib.sha256(data).hexdigest()
+          manifest_path.write_text(
+              json.dumps(manifest, indent=2, ensure_ascii=False) + '\n',
+              encoding='utf-8',
+              newline='\n',
+          )
+          Path('.github/workflows/normalize_v2176_manifest.yml').unlink()
+          '@ | python -
+
+      - name: Install exact runtime dependencies
+        run: "python -m pip install --only-binary=:all: --require-hashes -r requirements.lock.txt"
+
+      - name: Install project and exact test dependencies
+        run: |
+          python -m pip install --no-deps -e .
+          python -m pip install --only-binary=:all: -r requirements-test.txt
+
+      - name: Verify dependency consistency
+        run: python -m pip check
+
+      - name: Compile and run complete suite
+        run: |
+          python -m compileall -q src scripts tests
+          python -m pytest -q
+
+      - name: Verify runtime identity against clean-checkout bytes
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          from mediataggerbot import __build_id__, __version__
+          from mediataggerbot.package_identity import verify_runtime_identity
+          status = verify_runtime_identity(Path.cwd(), __version__, __build_id__)
+          print(status)
+          assert status['gate_result'] == 'PASS', status['mismatches']
+          assert status['package_verified_count'] == status['package_managed_count']
+          assert status['mismatch_count'] == 0
+          '@ | python -
+          git diff --check
+
+      - name: Commit only the normalized final manifest
+        shell: pwsh
+        run: |
+          git add -A
+          if (git diff --cached --quiet) {
+            throw 'No manifest normalization change was produced.'
+          }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          $body = @'
+          Reconcile the MANIFEST.csv managed-file record with the LF bytes produced by the repository's .gitattributes policy so clean Windows and GitHub checkouts verify the same release identity.
+
+          Copyright © 2026 Gateway Information Group LLC. All rights reserved.
+          '@
+          git commit -m "Normalize MediaTaggerBot manifest evidence after Git checkout" -m $body
+          git push origin HEAD:agent/v2176-entrypoint-output-hardening-20260809
+
+# Copyright © 2026 Gateway Information Group LLC. All rights reserved.
