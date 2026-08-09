@@ -783,9 +783,7 @@ def run_preflight(config: AppConfig, run_id: str, log_path: Path) -> int:
     )
     print(f"ffprobe: {summary['tools']['ffprobe'] or 'missing'}")
     print(f"exiftool: {summary['tools']['exiftool'] or 'missing/optional'}")
-    print(f"AcoustID key: {summary['api_keys']['acoustid_client_key']}")
-    print(f"Last.fm key: {summary['api_keys']['lastfm_api_key']}")
-    print(f"Discogs token: {summary['api_keys']['discogs_user_token']}")
+    print("Credential presence is recorded only in the redacted preflight report.")
     canonical = config.section("canonicalization")
     print(
         "Canonical names: "
