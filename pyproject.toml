@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools==80.9.0"]
+requires = ["setuptools==83.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,10 +10,10 @@ authors = [{name = "Gateway Information Group LLC"}]
 classifiers = ["Programming Language :: Python :: 3", "Operating System :: Microsoft :: Windows"]
 keywords = ["music-metadata", "musicbrainz", "acoustid", "media-library", "asset-metadata"]
 requires-python = ">=3.11,<3.15"
-dependencies = ["requests==2.32.5", "mutagen==1.47.0"]
+dependencies = ["requests==2.33.0", "mutagen==1.47.0"]
 
 [project.optional-dependencies]
-dev = ["pytest==9.0.2"]
+dev = ["pytest==9.0.3"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

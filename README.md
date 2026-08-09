@@ -30,9 +30,10 @@ A runtime identity failure blocks configuration and credential loading, authenti
 ## Dependencies
 
 - Python 3.11–3.14
-- `requests==2.32.5`
+- `requests==2.33.0`
 - `mutagen==1.47.0`
-- `pytest==9.0.2` for tests
+- `pytest==9.0.3` for tests
+- `setuptools==83.0.0` for the isolated build backend
 - FFprobe is optional and used only when available
 
 The exact runtime transitive set is recorded in `requirements.lock.txt`; the public repository does not bundle third-party wheels or executables. Third-party packages retain their own licenses.

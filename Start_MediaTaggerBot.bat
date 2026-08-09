@@ -435,7 +435,7 @@ if errorlevel 1 (
 
 "%VENV_PY%" "%PROJECT_ROOT%\scripts\verify_runtime_environment.py" --project-root "%PROJECT_ROOT%" --marker "%DEPS_MARKER%" --write-marker
 if errorlevel 1 (
-    echo ERROR: Installed dependencies failed RECORD/wheel/ABI attestation after offline installation.
+    echo ERROR: Installed dependencies failed RECORD/wheel/ABI attestation after installation.
     exit /b 16
 )
 

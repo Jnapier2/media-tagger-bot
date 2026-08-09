@@ -908,7 +908,7 @@ def build_dependency_status(config: AppConfig) -> dict[str, Any]:
         "runtime_install_policy": {
             "no_index_flag_present": "--no-index" in bat_text,
             "require_hashes_flag_present": "--require-hashes" in bat_text,
-            "network_download_required_for_bundled_dependencies": False,
+            "network_download_required_for_dependency_install": not wheel_dir.exists(),
             "supported_runtime": "Windows AMD64 CPython 3.11-3.14",
         },
         "publisher_signature": "not_authenticode_signed",
