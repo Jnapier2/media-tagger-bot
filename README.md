@@ -1,105 +1,65 @@
-# MediaTaggerBot
+# MediaTaggerBot v0.5.9
 
 [![CI](https://github.com/Jnapier2/media-tagger-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/Jnapier2/media-tagger-bot/actions/workflows/ci.yml)
 
-[Portfolio](https://jerry-napier-portfolio.netlify.app/) · [GitHub profile](https://github.com/Jnapier2)
+MediaTaggerBot is a local-first Windows utility for reviewing, matching, tagging, and safely renaming music files. It combines public metadata evidence with local file analysis, keeps uncertain matches visible for review, and records every applied change so it can be verified or rolled back.
 
-MediaTaggerBot is a local-first workflow for standardizing audio and music-video libraries when a wrong match is more costly than an unresolved file.
+## What changed in v0.5.9
 
-MediaTaggerBot turns inconsistent local filenames and tags into a predictable library structure:
+- Adds the v2.17.5 runtime release-identity and managed-file integrity gate.
+- Verifies the running package ID, version, build ID, `VERSION.txt`, `MANIFEST.json`, `PACKAGE_METADATA.json`, and every immutable `package_managed=true` file before loading runtime configuration or credentials.
+- Fails closed on mixed or stale release files while retaining local status, logs, recovery guidance, and a bounded diagnostic export.
+- Preserves complete-scan, confidence, ambiguity, dry-run, journal, readback, and rollback controls.
+- Keeps computer recognition informational and nonrestrictive; it cannot block launch, assign ownership, or require a cross-computer handoff.
 
-```text
-Artist - Title - Genre.ext
-Artist - Title - Genre - Subgenre.ext
+## Safe workflow
+
+1. Extract the complete release into a fresh local folder.
+2. Run `Start_MediaTaggerBot.bat`.
+3. Use **Preflight** before any apply operation.
+4. Review the dry-run report and unresolved/ambiguous items.
+5. Apply only after the release identity gate and readiness checks pass.
+6. Retain the journal and rollback manifest until the result is independently reviewed.
+
+## Runtime boundary
+
+The application does not commit credentials, runtime databases, media, logs, state, or user-specific configuration. `config/config.example.toml` documents the schema; the actual `config/config.toml` remains local and is intentionally excluded from public source and managed-file hashing.
+
+A runtime identity failure blocks configuration and credential loading, authenticated API work, and media mutation. It does not rewrite release files. Recovery is to preserve the diagnostic evidence and re-extract a complete verified package into a clean folder.
+
+## Dependencies
+
+- Python 3.11–3.14
+- `requests==2.32.5`
+- `mutagen==1.47.0`
+- `pytest==9.0.2` for tests
+- FFprobe is optional and used only when available
+
+The exact runtime transitive set is recorded in `requirements.lock.txt`; the public repository does not bundle third-party wheels or executables. Third-party packages retain their own licenses.
+
+## Verification
+
+```powershell
+py -3.13 -m pip install -r requirements.lock.txt --require-hashes
+py -3.13 -m pip install -e .
+py -3.13 -m pip install -r requirements-test.txt
+py -3.13 -m pip check
+py -3.13 -m pytest -q
 ```
 
-Built for Windows, it combines public metadata with local evidence, records why each match was accepted, and places dry-run review and conservative apply gates between identification and file mutation.
+The sanitized public-source tree was derived from the user-confirmed v0.5.9 release package with SHA-256:
 
-Confidence is a write control, not just a score. Evidence may propose a match, but only a complete scan and conservative gate can authorize a write. Uncertain files remain visible for review instead of being forced into a best guess.
+`7b359401997725ee93e2249f41fe6ed26fe7e74ca044141a87215956965b15ac`
 
-## Design evidence and public boundary
+Private operating counts, media-library contents, credentials, support exports, working notes, and machine-specific evidence are not included.
 
-This design is informed by a separate private operating workflow used to exercise complete scans, conservative apply gates, readback verification, rollback records, and preservation holds at library scale.
+## Boundaries
 
-The private library, paths, reports, and operating records are not included here, so this repository does not present private aggregate counts as independently verifiable performance evidence. Public claims are limited to behavior that can be reviewed in this source, its tests, and its documented safeguards.
+- Use only on media you own or are authorized to modify.
+- Matching evidence is advisory until reviewed; uncertain files remain held rather than forced into a match.
+- Public source and CI do not claim every filesystem, codec, provider, or physical Windows environment has been exercised.
+- The repository is source code, not a signed Windows installer.
 
-## Workflow safeguards
+Copyright © 2026 Gateway Information Group LLC. All rights reserved.
 
-- Evidence hierarchy: embedded stable IDs and acoustic fingerprints outrank text matching.
-- Safe operating modes: preflight, recursive scan, and dry-run precede any write operation.
-- Conservative apply gate: `apply-safe` rejects ambiguous, weakly corroborated, fallback-genre, or incomplete-scan candidates.
-- Transaction discipline: a durable SQLite journal, source-change checks, metadata readback, and rename verification make partial failures visible.
-- Operational resilience: bounded retries, provider-specific circuit breakers, cache integrity checks, single-instance ownership, and graceful stop requests.
-- Recovery evidence: rollback manifests restore filenames; diagnostics are allowlisted, size-bounded, and redacted.
-
-```text
-recursive scan
-    -> identity evidence
-    -> confidence and ambiguity gates
-    -> dry-run review
-    -> journaled metadata write and verification
-    -> verified rename
-```
-
-## Quick start
-
-Requirements:
-
-- Windows 10 or later
-- 64-bit CPython 3.11–3.14
-- Network access for Python dependencies and enabled metadata providers
-- Optional: `fpcalc`, `ffprobe`/FFmpeg, and ExifTool; see [tools/README.md](tools/README.md)
-
-The easiest path is to clone the repository and run `Start_MediaTaggerBot.bat`. The launcher creates a project-local virtual environment and installs the exact hash-checked dependencies in `requirements.lock.txt`.
-
-For a manual setup:
-
-```bat
-py -3.11 -m venv .venv
-.venv\Scripts\python -m pip install -e .
-copy config\config.example.toml config\config.toml
-.venv\Scripts\python -m mediataggerbot --mode preflight
-```
-
-Set `paths.media_root` and a meaningful `project.contact` value in the generated `config/config.toml`. API credentials can also be provided through `ACOUSTID_CLIENT_KEY`, `LASTFM_API_KEY`, and `DISCOGS_USER_TOKEN` environment variables.
-
-Project-wide paths, matching thresholds, provider rate limits, naming rules, and verification policy are centralized in the TOML file; credentials can remain in environment variables.
-
-## Recommended operating sequence
-
-1. Back up the media you intend to test.
-2. Run **Repair/check** and set the media root.
-3. Run **Preflight**, then **Scan-only**.
-4. Review a **Dry-run** and its exception reports.
-5. Test **Apply-safe** on a small, backed-up sample before widening scope.
-
-`apply-all` intentionally accepts weaker evidence and should not be treated as the default. A limited, interrupted, excluded, or otherwise incomplete traversal blocks apply modes.
-
-## Safety and privacy boundary
-
-- The application changes files only in an explicit apply mode.
-- Filename rollback does not restore overwritten embedded metadata; backups remain the recovery source.
-- Enabled providers may receive artist/title, identifiers, fingerprints, duration, or release context needed for matching. No media file is uploaded by this code.
-- Runtime configuration, logs, caches, reports, diagnostics, and media are excluded from version control.
-- Use the project only with media you are authorized to inspect and modify.
-
-See [API and integration notes](docs/API_NOTES.md) and [operations](docs/OPERATIONS.md) for the implementation boundary.
-
-## Development
-
-```bat
-py -3.11 -m venv .venv
-.venv\Scripts\python -m pip install -e ".[dev]"
-.venv\Scripts\python -m compileall -q src scripts tests
-.venv\Scripts\python -m pytest -q
-```
-
-The test suite uses controlled provider responses and temporary media fixtures. It does not require live API credentials.
-
-## Status
-
-MediaTaggerBot v0.5.7 is a local application, not a managed metadata service. Review the configuration and dry-run output for your environment before any mutation.
-
-## License
-
-Copyright © 2026 Gateway Information Group LLC. All rights reserved. Limited evaluation rights are described in [LICENSE.md](LICENSE.md). Third-party packages and optional tools remain under their respective licenses.
+This notice does not create or replace a software license. Third-party components retain their respective notices and licenses.

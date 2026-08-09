@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import csv
 import json
 import sqlite3
+import time
 import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 from .timeutil import now_utc
+from .utils import atomic_text_writer, csv_safe_mapping
 
 
 class OperationJournal:
@@ -123,20 +126,34 @@ class OperationJournal:
     def reconcile_prior_incomplete(self, limit: int = 10000) -> dict[str, Any]:
         """Classify crash-left operations without touching media files.
 
-        The journal is updated so diagnostics distinguish a completed rename from a
-        safe-to-retry source, a path conflict, or missing evidence. No rename, tag write,
-        deletion, or repair is performed here.
+        Completion is accepted only when the journal reached a durable rename stage and
+        the target still matches recorded stat/file-identity evidence. Presence alone is
+        never treated as proof because an unrelated target can occupy the same path.
         """
+        effective_limit = max(1, int(limit))
+        eligible_total = int(
+            self.conn.execute(
+                "SELECT COUNT(*) FROM operations WHERE status NOT IN "
+                "('completed', 'failed', 'retryable', 'conflict', 'missing') AND run_id != ?",
+                (self.run_id,),
+            ).fetchone()[0]
+        )
         rows = self.conn.execute(
-            "SELECT operation_id, run_id, source_path, target_path, stage, status FROM operations "
-            "WHERE status NOT IN ('completed', 'failed', 'retryable', 'conflict', 'missing') "
+            "SELECT operation_id, run_id, source_path, target_path, stage, status, details_json "
+            "FROM operations WHERE status NOT IN ('completed', 'failed', 'retryable', 'conflict', 'missing') "
             "AND run_id != ? ORDER BY updated_utc ASC LIMIT ?",
-            (self.run_id, max(1, int(limit))),
+            (self.run_id, effective_limit),
         ).fetchall()
         counts = {"checked": 0, "completed_after_crash": 0, "retryable": 0, "conflict": 0, "missing": 0}
-        for operation_id, prior_run_id, source_raw, target_raw, prior_stage, _status in rows:
+        for operation_id, prior_run_id, source_raw, target_raw, prior_stage, _status, details_raw in rows:
             source = Path(source_raw)
             target = Path(target_raw)
+            try:
+                recorded = json.loads(details_raw) if details_raw else {}
+            except (ValueError, TypeError):
+                recorded = {}
+            if not isinstance(recorded, dict):
+                recorded = {}
             same = _same_path(source, target)
             source_exists = source.exists()
             target_exists = target.exists()
@@ -148,19 +165,39 @@ class OperationJournal:
                 "source_exists": source_exists,
                 "target_exists": target_exists,
                 "same_source_target": same,
+                "recorded_identity_available": bool(
+                    recorded.get("final_identity")
+                    or recorded.get("rename_verification")
+                    or recorded.get("post_metadata_identity")
+                ),
             }
             if same and source_exists:
-                if prior_stage in {"metadata_verified", "rename_verified", "completed"}:
+                identity_ok = _path_matches_recorded_identity(
+                    source,
+                    recorded.get("final_identity") or recorded.get("post_metadata_identity"),
+                )
+                details["identity_match"] = identity_ok
+                if prior_stage in {"metadata_verified", "rename_verified", "completed"} and identity_ok:
                     self.update(operation_id, "reconciled_same_path_durable_stage", status="completed", details=details)
                     counts["completed_after_crash"] += 1
-                else:
+                elif prior_stage in {"planned", "source_verified", "metadata_written"}:
                     self.update(operation_id, "reconciled_same_path_safe_to_retry", status="retryable", details=details)
                     counts["retryable"] += 1
+                else:
+                    self.update(operation_id, "reconciled_same_path_uncertain", status="conflict", details=details)
+                    counts["conflict"] += 1
             elif target_exists and not source_exists:
-                # Target presence proves a rename reached its durable final path, but does
-                # not claim metadata correctness beyond the prior recorded stage.
-                self.update(operation_id, "reconciled_target_present", status="completed", details=details)
-                counts["completed_after_crash"] += 1
+                identity_ok = _path_matches_recorded_identity(
+                    target,
+                    recorded.get("final_identity") or recorded.get("rename_verification"),
+                )
+                details["identity_match"] = identity_ok
+                if prior_stage in {"rename_verified", "completed"} and identity_ok:
+                    self.update(operation_id, "reconciled_target_verified", status="completed", details=details)
+                    counts["completed_after_crash"] += 1
+                else:
+                    self.update(operation_id, "reconciled_target_present_uncertain", status="conflict", details=details)
+                    counts["conflict"] += 1
             elif source_exists and not target_exists:
                 self.update(operation_id, "reconciled_safe_to_retry", status="retryable", details=details)
                 counts["retryable"] += 1
@@ -171,9 +208,12 @@ class OperationJournal:
                 self.update(operation_id, "reconciled_paths_missing", status="missing", details=details)
                 counts["missing"] += 1
         return {
-            "schema": "MediaTaggerBot.operation_journal_reconciliation.v1",
+            "schema": "MediaTaggerBot.operation_journal_reconciliation.v2",
             "run_id": self.run_id,
             "created_utc": now_utc().isoformat(),
+            "eligible_total": eligible_total,
+            "limit": effective_limit,
+            "truncated": eligible_total > len(rows),
             **counts,
             "media_files_mutated": False,
         }
@@ -195,7 +235,7 @@ class OperationJournal:
 def read_operation_journal_summary(path: Path, limit: int = 100) -> dict[str, Any]:
     """Read-only compact summary suitable for diagnostics."""
     summary: dict[str, Any] = {
-        "schema": "MediaTaggerBot.operation_journal_summary.v1",
+        "schema": "MediaTaggerBot.operation_journal_summary.v2",
         "created_utc": now_utc().isoformat(),
         "path": str(path),
         "exists": path.exists(),
@@ -203,6 +243,10 @@ def read_operation_journal_summary(path: Path, limit: int = 100) -> dict[str, An
         "stage_counts": {},
         "schema_version": None,
         "quick_check": "not_run",
+        "incomplete_total": 0,
+        "incomplete_included": 0,
+        "incomplete_omitted": 0,
+        "truncated": False,
         "incomplete_operations": [],
     }
     if not path.exists():
@@ -217,12 +261,20 @@ def read_operation_journal_summary(path: Path, limit: int = 100) -> dict[str, An
         summary["schema_version"] = int(conn.execute("PRAGMA user_version").fetchone()[0])
         status_rows = conn.execute("SELECT status, COUNT(*) FROM operations GROUP BY status").fetchall()
         stage_rows = conn.execute("SELECT stage, COUNT(*) FROM operations GROUP BY stage").fetchall()
+        incomplete_total = int(
+            conn.execute("SELECT COUNT(*) FROM operations WHERE status != 'completed'").fetchone()[0]
+        )
+        included_limit = max(1, int(limit))
         incomplete = conn.execute(
             "SELECT operation_id, run_id, source_path, target_path, stage, status, created_utc, updated_utc FROM operations WHERE status != 'completed' ORDER BY updated_utc DESC LIMIT ?",
-            (max(1, int(limit)),),
+            (included_limit,),
         ).fetchall()
         summary["status_counts"] = {str(key): int(value) for key, value in status_rows}
         summary["stage_counts"] = {str(key): int(value) for key, value in stage_rows}
+        summary["incomplete_total"] = incomplete_total
+        summary["incomplete_included"] = len(incomplete)
+        summary["incomplete_omitted"] = max(0, incomplete_total - len(incomplete))
+        summary["truncated"] = incomplete_total > len(incomplete)
         summary["incomplete_operations"] = [
             {
                 "operation_id": row[0],
@@ -244,8 +296,117 @@ def read_operation_journal_summary(path: Path, limit: int = 100) -> dict[str, An
     return summary
 
 
+def write_failed_operations_report(path: Path, output_dir: Path, run_id: str) -> Path | None:
+    """Write a read-only, focused report for failed/retryable journal entries.
+
+    This report never retries or changes media. It exposes exactly what remains in
+    the journal so the next action can be chosen deliberately.
+    """
+    if not path.exists():
+        return None
+    encoded_path = quote(path.as_posix(), safe="/:")
+    uri = f"file:{encoded_path}?mode=ro"
+    conn: sqlite3.Connection | None = None
+    rows: list[tuple[Any, ...]] = []
+    try:
+        conn = sqlite3.connect(uri, uri=True, timeout=5.0)
+        rows = conn.execute(
+            "SELECT operation_id, run_id, source_path, target_path, stage, status, created_utc, updated_utc, details_json "
+            "FROM operations WHERE status != 'completed' ORDER BY updated_utc DESC"
+        ).fetchall()
+    finally:
+        if conn is not None:
+            conn.close()
+    if not rows:
+        return None
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out = output_dir / f"failed_operations_{run_id}.csv"
+    fields = [
+        "operation_id", "prior_run_id", "stage", "status", "source_path", "target_path",
+        "source_exists", "target_exists", "retry_class", "recommended_action",
+        "created_utc", "updated_utc", "error",
+    ]
+    with atomic_text_writer(out, encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for operation_id, prior_run_id, source_raw, target_raw, stage, status, created_utc, updated_utc, details_raw in rows:
+            source = Path(source_raw)
+            target = Path(target_raw)
+            source_exists = source.exists()
+            target_exists = target.exists()
+            if source_exists and not target_exists:
+                retry_class = "source_present_revalidate_before_retry"
+                action = "Run dry-run against this file/folder; retry only after writer and identity checks pass."
+            elif target_exists and not source_exists:
+                retry_class = "target_present_review_completed_state"
+                action = "Inspect target metadata and journal evidence; do not retry blindly."
+            elif source_exists and target_exists:
+                retry_class = "path_conflict"
+                action = "Review both files and collision evidence; no automatic retry."
+            else:
+                retry_class = "paths_missing"
+                action = "Locate from backup or current library before any recovery action."
+            error = ""
+            try:
+                details = json.loads(details_raw or "{}")
+                if isinstance(details, dict):
+                    error = str(details.get("error") or "")
+            except Exception:
+                error = "details_json_unreadable"
+            writer.writerow(csv_safe_mapping({
+                "operation_id": operation_id,
+                "prior_run_id": prior_run_id,
+                "stage": stage,
+                "status": status,
+                "source_path": source_raw,
+                "target_path": target_raw,
+                "source_exists": source_exists,
+                "target_exists": target_exists,
+                "retry_class": retry_class,
+                "recommended_action": action,
+                "created_utc": created_utc,
+                "updated_utc": updated_utc,
+                "error": error,
+            }))
+    return out
+
+
 def _same_path(left: Path, right: Path) -> bool:
     try:
         return left.resolve() == right.resolve()
     except OSError:
         return str(left).casefold() == str(right).casefold()
+
+
+def _path_matches_recorded_identity(path: Path, identity: Any) -> bool:
+    if not isinstance(identity, dict) or not path.exists() or not path.is_file():
+        return False
+    try:
+        current = path.stat()
+    except OSError:
+        return False
+    expected_size = identity.get("size_bytes")
+    if expected_size is None:
+        expected_size = identity.get("target_size_bytes")
+    expected_modified = identity.get("modified_ns")
+    expected_file_id = identity.get("file_id")
+    if expected_size is None:
+        return False
+    try:
+        if int(expected_size) != int(current.st_size):
+            return False
+    except (TypeError, ValueError):
+        return False
+    if expected_modified is not None:
+        try:
+            if int(expected_modified) != int(getattr(current, "st_mtime_ns", -1)):
+                return False
+        except (TypeError, ValueError):
+            return False
+    if expected_file_id not in {None, 0, "0", ""}:
+        try:
+            if int(expected_file_id) != int(getattr(current, "st_ino", -1)):
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True

@@ -1,8 +1,8 @@
 @echo off
-rem MediaTaggerBot v0.5.7 Windows launcher.
+rem Asset metadata: ID MTB-LAUNCHER-BAT; class launcher; role primary-launcher; version v0.5.9; status current; sensitivity project-internal; tags media-tagger-bot,windows,bat.
 setlocal EnableExtensions DisableDelayedExpansion
 
-title MediaTaggerBot v0.5.7 BAT Menu
+title MediaTaggerBot v0.5.9 BAT Menu
 set "PROJECT_ROOT=%~dp0"
 if "%PROJECT_ROOT:~-1%"=="\" set "PROJECT_ROOT=%PROJECT_ROOT:~0,-1%"
 cd /d "%PROJECT_ROOT%" || (
@@ -19,21 +19,13 @@ for %%D in ("logs" "logs\batch_runs" "exports" "diagnostics" "state" "temp" "con
 cls
 call :header
 echo.
-echo Choose a mode:
-echo   1. Preflight        - validate config, target, tools, and API-key presence
-echo   2. Scan-only        - recursively inventory root + all reachable subfolders
+echo Main menu:
+echo   1. Preflight        - validate config, target, tools, and API readiness
+echo   2. Scan-only        - recursively inventory all reachable subfolders
 echo   3. Dry-run          - match and propose names; no media changes
-echo   4. Apply-safe       - tag/rename high-confidence public-DB matches
-echo   5. Apply-all        - aggressive autopilot; lower-confidence matches allowed
-echo   6. Diagnostics      - always create a compact ZIP, even if config is malformed
-echo   7. Rollback         - restore filenames from rollback_manifest_*.json
-echo   8. Set media root   - safely save/change the target folder
-echo   9. Repair/check     - path, config-recovery, and portability check
-echo  10. Edit config      - Notepad edit with backup + post-save validation
-echo  11. Open exports     - open reports folder
-echo  12. Open diagnostics - open diagnostics folder
-echo  13. Open batch logs  - open full batch-output transcripts
-echo  14. Request stop     - gracefully finalize the active long run
+echo   4. Apply-safe       - tag/rename only strongly corroborated matches
+echo   5. Diagnostics      - create/open reports, diagnostics, logs, and help
+echo   6. Advanced         - setup, repair, rollback, stop, or aggressive apply
 echo   0. Exit
 echo.
 set "CHOICE="
@@ -43,21 +35,63 @@ if "%CHOICE%"=="1" goto menu_preflight
 if "%CHOICE%"=="2" goto menu_scan
 if "%CHOICE%"=="3" goto menu_dry
 if "%CHOICE%"=="4" goto menu_safe
-if "%CHOICE%"=="5" goto menu_all
-if "%CHOICE%"=="6" goto menu_diagnostics
-if "%CHOICE%"=="7" goto menu_rollback
-if "%CHOICE%"=="8" goto menu_setroot
-if "%CHOICE%"=="9" goto menu_repair
-if "%CHOICE%"=="10" goto menu_edit
-if "%CHOICE%"=="11" goto menu_exports
-if "%CHOICE%"=="12" goto menu_diagnostics_folder
-if "%CHOICE%"=="13" goto menu_logs
-if "%CHOICE%"=="14" goto menu_stop
+if "%CHOICE%"=="5" goto diagnostics_menu
+if "%CHOICE%"=="6" goto advanced_menu
 if "%CHOICE%"=="0" exit /b 0
 
 echo Invalid selection: %CHOICE%
 pause
 goto menu
+
+:diagnostics_menu
+cls
+call :header
+echo.
+echo Diagnostics and reports:
+echo   1. Create diagnostics ZIP
+echo   2. Open exports/reports
+echo   3. Open diagnostics folder
+echo   4. Open full BAT transcripts
+echo   5. Open README and runbook
+echo   0. Back
+echo.
+set "SUBCHOICE="
+set /p "SUBCHOICE=Selection: "
+if "%SUBCHOICE%"=="1" goto menu_diagnostics
+if "%SUBCHOICE%"=="2" goto menu_exports
+if "%SUBCHOICE%"=="3" goto menu_diagnostics_folder
+if "%SUBCHOICE%"=="4" goto menu_logs
+if "%SUBCHOICE%"=="5" goto menu_help
+if "%SUBCHOICE%"=="0" goto menu
+echo Invalid selection: %SUBCHOICE%
+pause
+goto diagnostics_menu
+
+:advanced_menu
+cls
+call :header
+echo.
+echo Advanced and recovery:
+echo   1. Set media root
+echo   2. Repair/check
+echo   3. Edit config safely
+echo   4. Request graceful stop
+echo   5. Rollback filenames
+echo   6. Apply-all - aggressive lower-confidence mode
+echo   0. Back
+echo.
+set "SUBCHOICE="
+set /p "SUBCHOICE=Selection: "
+if "%SUBCHOICE%"=="1" goto menu_setroot
+if "%SUBCHOICE%"=="2" goto menu_repair
+if "%SUBCHOICE%"=="3" goto menu_edit
+if "%SUBCHOICE%"=="4" goto menu_stop
+if "%SUBCHOICE%"=="5" goto menu_rollback
+if "%SUBCHOICE%"=="6" goto menu_all
+if "%SUBCHOICE%"=="0" goto menu
+echo Invalid selection: %SUBCHOICE%
+pause
+goto advanced_menu
 
 :menu_preflight
 call :runmode preflight
@@ -77,50 +111,62 @@ goto menu
 
 :menu_all
 call :runmode apply-all
-goto menu
+goto advanced_menu
 
 :menu_diagnostics
 call :runmode diagnostics
-goto menu
+goto diagnostics_menu
 
 :menu_rollback
 call :runmode rollback
-goto menu
+goto advanced_menu
 
 :menu_setroot
 call :runmode set-root
-goto menu
+goto advanced_menu
 
 :menu_repair
 call :runmode repair
-goto menu
+goto advanced_menu
 
 :menu_edit
 call :editconfig
-goto menu
+goto advanced_menu
 
 :menu_exports
 call :openfolder "exports"
-goto menu
+goto diagnostics_menu
 
 :menu_diagnostics_folder
 call :openfolder "diagnostics"
-goto menu
+goto diagnostics_menu
 
 :menu_logs
 call :openfolder "logs\batch_runs"
-goto menu
+goto diagnostics_menu
+
+:menu_help
+call :openhelp
+goto diagnostics_menu
 
 :menu_stop
 call :runmode request-stop
-goto menu
+goto advanced_menu
 
 :header
 echo ===============================================
-echo  MediaTaggerBot v0.5.7
-echo  Triage-aware + graceful-stop + offline pinned runtime
+echo  MediaTaggerBot v0.5.9
+echo  Build MTB-0.5.9-PUBLIC-20260808-01
+echo  Pre-auth package integrity + crash-safe metadata runtime
 echo ===============================================
 echo Project: %PROJECT_ROOT%
+set "ACTIVE_COMPUTER=Unknown computer (generic defaults)"
+if /I "%COMPUTERNAME%"=="ALPHA" set "ACTIVE_COMPUTER=ALPHA (PC-ALPHA-01)"
+if /I "%COMPUTERNAME%"=="ASCEND" set "ACTIVE_COMPUTER=ASCEND (PC-ASCEND-02)"
+if /I "%COMPUTERNAME%"=="DEUSEX" set "ACTIVE_COMPUTER=DeusEx (PC-DEUSEX-03)"
+if /I "%COMPUTERNAME%"=="RAIDER" set "ACTIVE_COMPUTER=DeusEx (PC-DEUSEX-03)"
+if /I "%COMPUTERNAME%"=="GE66" set "ACTIVE_COMPUTER=DeusEx (PC-DEUSEX-03)"
+echo Computer: %ACTIVE_COMPUTER% - advisory only; never a launch gate
 if exist "%PROJECT_ROOT%\Launch_MediaTaggerBot.ps1" echo Note: legacy PowerShell launcher detected; it is ignored by this BAT.
 exit /b 0
 
@@ -154,7 +200,8 @@ if exist "%PROJECT_ROOT%\Launch_MediaTaggerBot.ps1" set "LEGACY_PS1=yes_ignored"
 
 > "%LOG_FILE%" echo ==================================================
 >> "%LOG_FILE%" echo MediaTaggerBot BAT run transcript
->> "%LOG_FILE%" echo Version: v0.5.7
+>> "%LOG_FILE%" echo Version: v0.5.9
+>> "%LOG_FILE%" echo BuildID: MTB-0.5.9-PUBLIC-20260808-01
 >> "%LOG_FILE%" echo Started: %DATE% %TIME%
 >> "%LOG_FILE%" echo ProjectRoot: %PROJECT_ROOT%
 >> "%LOG_FILE%" echo Mode: %MODE%
@@ -167,7 +214,7 @@ if defined ROLLBACK_ARG (>> "%LOG_FILE%" echo RollbackManifestProvided: yes) els
 >> "%LOG_FILE%" echo IdentitySafety: stable IDs first; version-aware candidate margin; ambiguity blocked in apply-safe
 >> "%LOG_FILE%" echo TriageExit: fail-closed Critical gates; graceful stop; truthful run_exit_report JSON
 >> "%LOG_FILE%" echo StopSafety: request-stop bypasses runtime setup and never rebuilds the active .venv
->> "%LOG_FILE%" echo DependencySafety: exact-version hash-checked lock; package index used only when dependencies are absent
+>> "%LOG_FILE%" echo DependencySafety: hash-locked public-source install; package retrieval occurs only during explicit local setup
 >> "%LOG_FILE%" echo LegacyPowerShellPresent: %LEGACY_PS1%
 >> "%LOG_FILE%" echo ==================================================
 >> "%LOG_FILE%" echo.
@@ -212,11 +259,7 @@ if /I "%MODE%"=="rollback" goto execute_python_control
 
 echo [launcher] Preparing project-local Python runtime...
 call :ensure_runtime
-if errorlevel 1 (
-    set "PY_EXIT=%ERRORLEVEL%"
-    call :clear_launcher_environment
-    exit /b %PY_EXIT%
-)
+if errorlevel 1 goto execute_mode_prerequisite_failed
 
 set "PYTHONPATH=%PROJECT_ROOT%\src"
 set "PATH=%PROJECT_ROOT%\tools;%PROJECT_ROOT%\tools\ffmpeg\bin;%PROJECT_ROOT%\tools\chromaprint;%PROJECT_ROOT%\tools\exiftool;%PATH%"
@@ -246,11 +289,7 @@ exit /b %PY_EXIT%
 echo [launcher] This recovery/diagnostic mode uses a dependency-free control runtime.
 echo [launcher] It does not create, delete, rebuild, or install into .venv.
 call :find_control_python
-if errorlevel 1 (
-    set "PY_EXIT=%ERRORLEVEL%"
-    call :clear_launcher_environment
-    exit /b %PY_EXIT%
-)
+if errorlevel 1 goto execute_control_prerequisite_failed
 set "PYTHONPATH=%PROJECT_ROOT%\src"
 set "PATH=%PROJECT_ROOT%\tools;%PROJECT_ROOT%\tools\ffmpeg\bin;%PROJECT_ROOT%\tools\chromaprint;%PROJECT_ROOT%\tools\exiftool;%PATH%"
 set "MEDIATAGGERBOT_ROOT_OVERRIDE="
@@ -275,11 +314,7 @@ echo [launcher] Request-stop uses a standard-library control path.
 echo [launcher] It will not create, delete, rebuild, or install into .venv.
 set "PYTHONPATH=%PROJECT_ROOT%\src"
 call :find_control_python
-if errorlevel 1 (
-    set "PY_EXIT=%ERRORLEVEL%"
-    call :clear_launcher_environment
-    exit /b %PY_EXIT%
-)
+if errorlevel 1 goto execute_stop_prerequisite_failed
 echo [launcher] Control Python: %CONTROL_PY% %CONTROL_SWITCH%
 if defined CONTROL_SWITCH "%CONTROL_PY%" %CONTROL_SWITCH% "%PROJECT_ROOT%\scripts\request_stop.py"
 if not defined CONTROL_SWITCH "%CONTROL_PY%" "%PROJECT_ROOT%\scripts\request_stop.py"
@@ -287,9 +322,25 @@ set "PY_EXIT=%ERRORLEVEL%"
 call :clear_launcher_environment
 exit /b %PY_EXIT%
 
+:execute_mode_prerequisite_failed
+set "PY_EXIT=%ERRORLEVEL%"
+call :clear_launcher_environment
+exit /b %PY_EXIT%
+
+:execute_control_prerequisite_failed
+set "PY_EXIT=%ERRORLEVEL%"
+call :clear_launcher_environment
+exit /b %PY_EXIT%
+
+:execute_stop_prerequisite_failed
+set "PY_EXIT=%ERRORLEVEL%"
+call :clear_launcher_environment
+exit /b %PY_EXIT%
+
 :set_launcher_environment
 set "MEDIATAGGERBOT_LAUNCHER_KIND=bat_menu"
-set "MEDIATAGGERBOT_LAUNCHER_VERSION=0.5.7"
+set "MEDIATAGGERBOT_LAUNCHER_VERSION=0.5.9"
+set "MEDIATAGGERBOT_LAUNCHER_BUILD_ID=MTB-0.5.9-PUBLIC-20260808-01"
 set "MEDIATAGGERBOT_LAUNCHER_PROJECT_ROOT=%PROJECT_ROOT%"
 set "MEDIATAGGERBOT_BATCH_LOG=%LOG_FILE%"
 exit /b 0
@@ -297,6 +348,7 @@ exit /b 0
 :clear_launcher_environment
 set "MEDIATAGGERBOT_LAUNCHER_KIND="
 set "MEDIATAGGERBOT_LAUNCHER_VERSION="
+set "MEDIATAGGERBOT_LAUNCHER_BUILD_ID="
 set "MEDIATAGGERBOT_LAUNCHER_PROJECT_ROOT="
 set "MEDIATAGGERBOT_BATCH_LOG="
 exit /b 0
@@ -316,7 +368,8 @@ exit /b 0
 
 :ensure_runtime
 set "VENV_PY=%PROJECT_ROOT%\.venv\Scripts\python.exe"
-set "DEPS_MARKER=%PROJECT_ROOT%\.venv\.deps_checked_v0.5.7"
+set "DEPS_MARKER=%PROJECT_ROOT%\.venv\.deps_attestation_v0.5.9.json"
+set "RUNTIME_REBUILT=0"
 
 if exist "%VENV_PY%" "%VENV_PY%" -c "import platform,sys; ok=sys.version_info[:2] in {(3,11),(3,12),(3,13),(3,14)} and platform.machine().lower() in {'amd64','x86_64'}; raise SystemExit(0 if ok else 1)" >nul 2>nul
 if exist "%VENV_PY%" if not errorlevel 1 goto runtime_python_ready
@@ -340,6 +393,7 @@ if errorlevel 1 (
     echo ERROR: Failed to create a supported 64-bit Python virtual environment.
     exit /b 13
 )
+set "RUNTIME_REBUILT=1"
 
 :runtime_python_ready
 if not exist "%VENV_PY%" (
@@ -347,30 +401,51 @@ if not exist "%VENV_PY%" (
     exit /b 14
 )
 
-"%VENV_PY%" -c "from importlib.metadata import version; expected={'requests':'2.33.0','mutagen':'1.47.0','charset-normalizer':'3.4.9','idna':'3.18','urllib3':'2.7.0','certifi':'2026.6.17'}; raise SystemExit(0 if all(version(k)==v for k,v in expected.items()) else 1)" >nul 2>nul
+if "%RUNTIME_REBUILT%"=="1" goto install_dependencies
+"%VENV_PY%" "%PROJECT_ROOT%\scripts\verify_runtime_environment.py" --project-root "%PROJECT_ROOT%" --marker "%DEPS_MARKER%" >nul 2>nul
 if not errorlevel 1 goto dependencies_ready
+echo [launcher] Existing dependency environment did not pass file-hash attestation; rebuilding from the hash-locked public-source contract.
+rmdir /s /q "%PROJECT_ROOT%\.venv"
+if exist "%PROJECT_ROOT%\.venv" (
+    echo ERROR: Could not remove the failed dependency environment. Close programs using it, then rerun.
+    exit /b 12
+)
+call :find_base_python
+if errorlevel 1 exit /b %ERRORLEVEL%
+if defined PY_SWITCH "%PY_EXE%" %PY_SWITCH% -m venv "%PROJECT_ROOT%\.venv"
+if not defined PY_SWITCH "%PY_EXE%" -m venv "%PROJECT_ROOT%\.venv"
+if errorlevel 1 (
+    echo ERROR: Failed to rebuild the project-local Python environment.
+    exit /b 13
+)
+set "RUNTIME_REBUILT=1"
 
+:install_dependencies
 if not exist "%PROJECT_ROOT%\requirements.lock.txt" (
-    echo ERROR: Missing requirements.lock.txt. Restore the file from the repository.
+    echo ERROR: Missing requirements.lock.txt. Re-extract the clean release ZIP.
+    exit /b 15
+)
+echo [launcher] Installing hash-locked dependencies for the public source release...
+"%VENV_PY%" -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r "%PROJECT_ROOT%\requirements.lock.txt"
+if errorlevel 1 (
+    echo ERROR: Hash-locked dependency installation failed. Application config, credentials, and media processing were not started.
+    echo Check network/package availability and Norton/Windows Security logs without disabling protection, then rerun.
     exit /b 15
 )
 
-echo [launcher] Installing hash-checked dependencies from the configured Python package index...
-"%VENV_PY%" -m pip install --disable-pip-version-check --require-hashes -r "%PROJECT_ROOT%\requirements.lock.txt"
+"%VENV_PY%" "%PROJECT_ROOT%\scripts\verify_runtime_environment.py" --project-root "%PROJECT_ROOT%" --marker "%DEPS_MARKER%" --write-marker
 if errorlevel 1 (
-    echo ERROR: Dependency installation failed. Check network/package-index access and retry.
-    echo Do not disable endpoint protection or weaken system security policy.
-    exit /b 15
-)
-
-"%VENV_PY%" -c "from importlib.metadata import version; expected={'requests':'2.33.0','mutagen':'1.47.0','charset-normalizer':'3.4.9','idna':'3.18','urllib3':'2.7.0','certifi':'2026.6.17'}; raise SystemExit(0 if all(version(k)==v for k,v in expected.items()) else 1)" >nul 2>nul
-if errorlevel 1 (
-    echo ERROR: Exact hash-locked dependencies are unavailable after local installation.
+    echo ERROR: Installed dependencies failed RECORD/wheel/ABI attestation after offline installation.
     exit /b 16
 )
 
 :dependencies_ready
-> "%DEPS_MARKER%" echo Exact hash-checked dependencies verified for MediaTaggerBot v0.5.7 on %DATE% %TIME%
+if exist "%DEPS_MARKER%" exit /b 0
+"%VENV_PY%" "%PROJECT_ROOT%\scripts\verify_runtime_environment.py" --project-root "%PROJECT_ROOT%" --marker "%DEPS_MARKER%" --write-marker >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: Dependency environment verified earlier but its attestation marker could not be finalized.
+    exit /b 16
+)
 exit /b 0
 
 :find_base_python
@@ -483,6 +558,11 @@ if errorlevel 1 (
 echo Pre-edit backup: %BACKUP_FILE%
 start "" /wait notepad.exe "%PROJECT_ROOT%\config\config.toml"
 call :runmode validate-config "%BACKUP_FILE%"
+exit /b 0
+
+:openhelp
+if exist "%PROJECT_ROOT%\README_RUN_FIRST.md" start "" notepad.exe "%PROJECT_ROOT%\README_RUN_FIRST.md"
+if exist "%PROJECT_ROOT%\RUNBOOK.md" start "" notepad.exe "%PROJECT_ROOT%\RUNBOOK.md"
 exit /b 0
 
 :openfolder

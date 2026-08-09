@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import secrets
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -10,7 +12,13 @@ def now_utc() -> datetime:
 
 def timestamp_for_filename(dt: datetime | None = None) -> str:
     dt = dt or now_utc()
-    return dt.astimezone(timezone.utc).strftime("%Y%m%d_%H%M%S_UTC")
+    return dt.astimezone(timezone.utc).strftime("%Y%m%d_%H%M%S_%f_UTC")
+
+
+def new_run_id(mode: str, dt: datetime | None = None) -> str:
+    """Create a collision-resistant run ID before any shared output is opened."""
+    mode_slug = str(mode or "unknown").replace("-", "_")
+    return f"{timestamp_for_filename(dt)}_{os.getpid()}_{secrets.token_hex(3)}_{mode_slug}"
 
 
 def local_timestamp(tz_name: str = "America/Chicago", dt: datetime | None = None) -> str:

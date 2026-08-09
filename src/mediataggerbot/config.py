@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 from dataclasses import dataclass, field
@@ -25,6 +26,9 @@ VIDEO_EXTENSIONS_DEFAULT = [
 ]
 CONFIG_SCHEMA_VERSION = 1
 
+_WINDOWS_INVALID_SUFFIX_CHARS = set('<>:"/\\|?*')
+_CONTROL_CHARACTER_RE = re.compile(r"[\x00-\x1f\x7f]")
+
 MAIN_GENRES = [
     "Pop",
     "Rock",
@@ -42,6 +46,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "timezone": "America/Chicago",
         "contact": "local-user@example.invalid",
         "config_schema_version": CONFIG_SCHEMA_VERSION,
+    },
+    "computer_awareness": {
+        "enabled": True,
+        "manual_override": "",
+        "show_active_computer": True,
+        "performance_hints": True,
     },
     "paths": {
         "media_root": "",
@@ -92,6 +102,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "retry_jitter_seconds": 0.6,
         "single_instance_stale_after_seconds": 86400,
         "single_instance_heartbeat_seconds": 30,
+        "single_instance_dead_owner_grace_seconds": 30,
         "operation_journal_enabled": True,
         "reconcile_operation_journal_on_apply": True,
         "verify_source_unchanged_before_apply": True,
@@ -99,6 +110,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "require_verified_metadata_before_rename_apply_safe": True,
         "require_embedded_metadata_for_supported_formats_apply_safe": True,
         "repair_readonly_attribute_on_apply": True,
+        "probe_parent_directory_mutation": True,
         "block_fallback_genre_in_apply_safe": True,
         "write_api_metrics": True,
         "api_cache_auto_recover": True,
@@ -162,7 +174,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "write_consistency_reports": True,
     },
     "apis": {
-        "user_agent": "MediaTaggerBot/0.5.7 (local personal media tagger; set contact in config)",
+        "user_agent": "MediaTaggerBot/0.5.9 (local personal media tagger; set contact in config)",
         "acoustid_client_key": "",
         "lastfm_api_key": "",
         "discogs_user_token": "",
@@ -565,6 +577,7 @@ def validate_config_errors(data: dict[str, Any], unknown_keys: list[str] | None 
         "max_retries": (0, 10),
         "single_instance_stale_after_seconds": (60, 31_536_000),
         "single_instance_heartbeat_seconds": (5, 3600),
+        "single_instance_dead_owner_grace_seconds": (5, 600),
         "scan_progress_every_directories": (1, 100_000),
         "scan_progress_every_files": (1, 100_000),
         "progress_log_every_files": (1, 100_000),
@@ -664,10 +677,55 @@ def validate_config_errors(data: dict[str, Any], unknown_keys: list[str] | None 
     except (TypeError, ValueError):
         errors.append("metadata.id3_version must be an integer.")
     sidecar_extension = str(metadata.get("sidecar_extension", ".metadata.json"))
-    if not sidecar_extension.startswith(".") or "/" in sidecar_extension or "\\" in sidecar_extension:
-        errors.append("metadata.sidecar_extension must be a filename suffix beginning with '.' and contain no path separators.")
+    sidecar_error = validate_sidecar_extension(sidecar_extension)
+    if sidecar_error:
+        errors.append(f"metadata.sidecar_extension {sidecar_error}")
+
+    try:
+        heartbeat_seconds = int(processing.get("single_instance_heartbeat_seconds", 30))
+        stale_after_seconds = int(processing.get("single_instance_stale_after_seconds", 86400))
+        dead_owner_grace_seconds = int(processing.get("single_instance_dead_owner_grace_seconds", 30))
+        if heartbeat_seconds * 4 >= stale_after_seconds:
+            errors.append(
+                "processing.single_instance_heartbeat_seconds must be less than one quarter of "
+                "single_instance_stale_after_seconds."
+            )
+        if dead_owner_grace_seconds >= stale_after_seconds:
+            errors.append(
+                "processing.single_instance_dead_owner_grace_seconds must be less than "
+                "single_instance_stale_after_seconds."
+            )
+    except (TypeError, ValueError):
+        # The type validator reports malformed values separately.
+        pass
 
     return errors
+
+
+def validate_sidecar_extension(value: str) -> str | None:
+    """Return a precise validation error for a configured sidecar suffix.
+
+    Windows removes trailing dots/spaces and supports alternate-data-stream colons.
+    A suffix such as ``.`` or ``..`` can therefore address the media file itself.
+    Validate for Windows semantics even when release tests run on another OS.
+    """
+    suffix = str(value or "")
+    if not suffix.startswith("."):
+        return "must begin with '.'."
+    if suffix in {".", ".."}:
+        return "cannot be '.' or '..' because Windows can alias those paths to the media file."
+    if len(suffix) > 64:
+        return "must be 64 characters or fewer."
+    if suffix.endswith((".", " ")):
+        return "cannot end in a dot or space."
+    if _CONTROL_CHARACTER_RE.search(suffix):
+        return "cannot contain control characters."
+    invalid = sorted({char for char in suffix if char in _WINDOWS_INVALID_SUFFIX_CHARS})
+    if invalid:
+        return "cannot contain Windows-invalid characters: " + "".join(invalid)
+    if suffix.count(".") < 2:
+        return "must include a descriptive extension such as '.metadata.json'."
+    return None
 
 
 def load_config(project_root: Path | None = None, config_path: Path | None = None) -> AppConfig:
@@ -730,7 +788,7 @@ def build_fallback_config(
     warnings = [
         "CONFIG INVALID: runtime is using safe in-memory defaults for diagnostics only.",
         f"Config parse error: {error_text}",
-        "Use BAT option 8 Set media root or option 9 Repair/check; processing modes fail closed until config is valid.",
+        "Use Advanced > Set media root or Advanced > Repair/check; processing modes fail closed until config is valid.",
     ]
     cfg = AppConfig(
         project_root=project_root,

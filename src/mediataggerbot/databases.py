@@ -38,6 +38,7 @@ class ApiClientBase:
         retry_backoff_seconds: float = 2.0,
         connect_timeout_seconds: int | None = None,
         retry_jitter_seconds: float = 0.5,
+        stop_check: Any | None = None,
     ) -> None:
         self.cache = cache
         self.namespace = namespace
@@ -46,7 +47,8 @@ class ApiClientBase:
             max(1.0, float(connect_timeout_seconds or min(timeout_seconds, 10))),
             max(1.0, float(timeout_seconds)),
         )
-        self.rate = RateLimiter(min_interval_seconds)
+        self.stop_check = stop_check
+        self.rate = RateLimiter(min_interval_seconds, stop_check=stop_check)
         self.max_retries = max(0, int(max_retries))
         self.max_attempts = self.max_retries + 1
         self.retry_backoff_seconds = max(0.0, float(retry_backoff_seconds))
@@ -71,6 +73,10 @@ class ApiClientBase:
             "total_retry_wait_seconds": 0.0,
             "last_status_code": None,
             "last_error": "",
+            "status_counts": {},
+            "permanent_client_errors": 0,
+            "transient_failures": 0,
+            "graceful_stop_interrupts": 0,
         }
 
     def _cache_key(self, method: str, url: str, params: dict[str, Any] | None = None, body: dict[str, Any] | None = None) -> str:
@@ -108,7 +114,12 @@ class ApiClientBase:
 
         final_error = ""
         for attempt in range(1, self.max_attempts + 1):
-            self.rate.wait()
+            if self.stop_check and self.stop_check():
+                self.metrics["graceful_stop_interrupts"] += 1
+                return None
+            if not self.rate.wait():
+                self.metrics["graceful_stop_interrupts"] += 1
+                return None
             response: requests.Response | None = None
             transient = False
             try:
@@ -122,6 +133,8 @@ class ApiClientBase:
                     timeout=self.timeout,
                 )
                 self.metrics["last_status_code"] = response.status_code
+                status_key = str(response.status_code)
+                self.metrics["status_counts"][status_key] = int(self.metrics["status_counts"].get(status_key, 0)) + 1
                 transient = response.status_code in TRANSIENT_HTTP_STATUS
                 if response.status_code == 429:
                     self.metrics["rate_limit_responses"] += 1
@@ -138,7 +151,9 @@ class ApiClientBase:
                         self.max_attempts,
                         delay,
                     )
-                    time.sleep(delay)
+                    if not self._wait_interruptibly(delay):
+                        self.metrics["graceful_stop_interrupts"] += 1
+                        return None
                     continue
                 response.raise_for_status()
                 payload = response.json()
@@ -176,13 +191,16 @@ class ApiClientBase:
                 delay = self._retry_delay(attempt, response.headers.get("Retry-After") if response is not None else None)
                 self.metrics["retries"] += 1
                 self.metrics["total_retry_wait_seconds"] += delay
-                time.sleep(delay)
+                if not self._wait_interruptibly(delay):
+                    self.metrics["graceful_stop_interrupts"] += 1
+                    return None
                 continue
             break
 
         self.metrics["failures"] += 1
         self.metrics["last_error"] = final_error
         if transient:
+            self.metrics["transient_failures"] += 1
             self.failure_streak += 1
             if self.failure_streak >= self.failure_streak_to_open:
                 self.circuit_open_until = time.monotonic() + self.circuit_breaker_seconds
@@ -193,12 +211,31 @@ class ApiClientBase:
                     self.circuit_breaker_seconds,
                 )
         else:
+            if self.metrics.get("last_status_code") and 400 <= int(self.metrics["last_status_code"]) < 500:
+                self.metrics["permanent_client_errors"] += 1
             # A permanent 4xx or item-specific validation failure proves the provider is
             # reachable; it must not disable unrelated lookups for the rest of the library.
             self.failure_streak = 0
             self.circuit_open_until = 0.0
             self._circuit_skip_log_count = 0
         return None
+
+
+    def _wait_interruptibly(self, delay: float) -> bool:
+        """Bound retry waits so a graceful-stop request is observed promptly."""
+        remaining = max(0.0, float(delay))
+        if remaining == 0:
+            if self.stop_check and self.stop_check():
+                return False
+            time.sleep(0.0)
+            return True
+        while remaining > 0:
+            if self.stop_check and self.stop_check():
+                return False
+            sleep_for = min(1.0, remaining)
+            time.sleep(sleep_for)
+            remaining -= sleep_for
+        return not (self.stop_check and self.stop_check())
 
     def _retry_delay(self, attempt: int, retry_after: str | None) -> float:
         parsed = _parse_retry_after(retry_after)
@@ -258,15 +295,32 @@ class MusicBrainzClient(ApiClientBase):
         return payload if isinstance(payload, dict) else None
 
     def lookup_isrc(self, isrc: str) -> list[dict[str, Any]]:
+        """Resolve an ISRC with a lean lookup, then enrich by recording MBID.
+
+        Production evidence showed recurring 400 responses when the ISRC endpoint was
+        combined with a large include set.  The lean request is sufficient to obtain
+        recording IDs; the normal recording endpoint then provides the rich payload.
+        """
         normalized = normalize_isrc(isrc)
         if not normalized:
             return []
         url = f"{self.BASE}/isrc/{normalized}"
-        params = {"fmt": "json", "inc": "artist-credits+releases+release-groups+genres+tags+isrcs"}
-        payload = self.request_json("GET", url, params=params)
-        if isinstance(payload, dict):
-            return [item for item in payload.get("recordings", []) if isinstance(item, dict)]
-        return []
+        payload = self.request_json("GET", url, params={"fmt": "json"})
+        if not isinstance(payload, dict):
+            return []
+        basic = [item for item in payload.get("recordings", []) if isinstance(item, dict)]
+        enriched: list[dict[str, Any]] = []
+        for item in basic[:25]:
+            mbid = str(item.get("id") or "").strip()
+            detailed = self.lookup_recording(mbid) if mbid else None
+            candidate = dict(detailed or item)
+            isrcs = candidate.get("isrcs")
+            if not isinstance(isrcs, list):
+                candidate["isrcs"] = [normalized]
+            elif normalized not in isrcs:
+                candidate["isrcs"] = [*isrcs, normalized]
+            enriched.append(candidate)
+        return enriched
 
     def lookup_release_group(self, mbid: str) -> dict[str, Any] | None:
         mbid = (mbid or "").strip()
@@ -308,6 +362,21 @@ class LastFmClient(ApiClientBase):
     def enabled(self) -> bool:
         return bool(self.api_key)
 
+    def track_get_top_tags(self, artist: str, title: str) -> list[str]:
+        if not self.enabled or not artist or not title:
+            return []
+        params = {"method": "track.getTopTags", "artist": artist, "track": title, "api_key": self.api_key, "format": "json"}
+        payload = self.request_json("GET", self.BASE, params=params)
+        tags: list[str] = []
+        if isinstance(payload, dict):
+            tag_node = payload.get("toptags", {}).get("tag", []) if isinstance(payload.get("toptags"), dict) else []
+            if isinstance(tag_node, dict):
+                tag_node = [tag_node]
+            for tag in tag_node:
+                if isinstance(tag, dict) and tag.get("name"):
+                    tags.append(str(tag["name"]))
+        return tags
+
     def track_get_info(self, artist: str | None = None, title: str | None = None, mbid: str | None = None, autocorrect: bool = True) -> dict[str, Any] | None:
         if not self.enabled:
             return None
@@ -335,6 +404,15 @@ class DiscogsClient(ApiClientBase):
     @property
     def enabled(self) -> bool:
         return bool(self.user_token)
+
+    def search_release(self, artist: str | None, title: str | None, limit: int = 3) -> list[dict[str, Any]]:
+        if not self.enabled or not title:
+            return []
+        params: dict[str, Any] = {"type": "release", "per_page": limit, "page": 1, "release_title": title}
+        if artist:
+            params["artist"] = artist
+        payload = self.request_json("GET", f"{self.BASE}/database/search", params=params)
+        return [r for r in payload.get("results", []) if isinstance(r, dict)] if isinstance(payload, dict) else []
 
     def search_track(self, artist: str | None, title: str | None, limit: int = 3) -> list[dict[str, Any]]:
         if not self.enabled or not title:

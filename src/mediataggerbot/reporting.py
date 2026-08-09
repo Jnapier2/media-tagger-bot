@@ -10,13 +10,13 @@ from typing import Any
 
 from .models import PlanResult, ScanCoverage, dataclass_to_jsonable
 from .asset_metadata import ASSET_METADATA_SCHEMA, PROJECT_SLUG
-from .utils import atomic_text_writer, comparison_key, normalize_display_text, write_json_atomic, write_text_atomic
+from .utils import atomic_text_writer, comparison_key, csv_safe_cell, csv_safe_mapping, normalize_display_text, write_json_atomic, write_text_atomic
 
 CSV_FIELDS = [
     "run_id", "mode", "status", "action", "should_apply", "original_path", "relative_path", "relative_depth",
     "proposed_path", "sidecar_path", "source_verified", "renamed", "rename_verified", "metadata_written", "metadata_verified", "operation_id",
     "confidence", "source", "identity_tier", "identity_cache_hit", "candidate_count", "candidate_margin", "ambiguity_status",
-    "version_evidence", "apply_blockers", "write_readiness_status",
+    "version_evidence", "apply_blockers", "write_readiness_status", "metadata_writer", "container_family", "target_collision_status",
     "existing_artist", "artist", "source_artist_credit", "existing_title", "title",
     "canonicalization_status", "canonicalization_score", "repository_agreement", "repository_conflicts",
     "musicbrainz_artist_ids", "genre", "filename_genre", "subgenre", "album", "date", "isrc",
@@ -55,6 +55,9 @@ def plan_to_row(plan: PlanResult, run_id: str, mode: str) -> dict[str, Any]:
         "version_evidence": " | ".join(match.version_evidence),
         "apply_blockers": " | ".join(match.apply_blockers),
         "write_readiness_status": str((match.evidence.get("write_readiness_at_apply") or match.evidence.get("write_readiness") or {}).get("status") or ""),
+        "metadata_writer": str(((match.evidence.get("write_readiness_at_apply") or match.evidence.get("write_readiness") or {}).get("metadata_writer_plan") or {}).get("writer") or ""),
+        "container_family": str(((match.evidence.get("write_readiness_at_apply") or match.evidence.get("write_readiness") or {}).get("metadata_writer_plan") or {}).get("container_family") or ""),
+        "target_collision_status": str((match.evidence.get("target_collision") or {}).get("status") or ""),
         "existing_artist": plan.media.existing_artist or "",
         "artist": match.artist or "",
         "source_artist_credit": match.source_artist_credit or "",
@@ -153,6 +156,23 @@ def write_reports(
             _write_plan_csv(prior_path, prior_text_matches, run_id, mode)
             paths["prior_text_identity_review_csv"] = prior_path
 
+    failure_statuses = {
+        "scan_error", "processing_failed", "apply_failed", "metadata_verification_failed",
+        "embedded_metadata_write_failed", "metadata_writer_unavailable", "source_changed_skipped",
+        "write_readiness_blocked",
+    }
+    failures = [plan for plan in plans if plan.status in failure_statuses or plan.media.scan_error]
+    if failures:
+        failure_path = output_dir / f"run_failures_{run_id}.csv"
+        _write_plan_csv(failure_path, failures, run_id, mode)
+        paths["run_failures_csv"] = failure_path
+
+    collisions = [plan for plan in plans if "canonical_target_collision" in plan.match.apply_blockers]
+    if collisions:
+        collision_path = output_dir / f"target_collisions_{run_id}.csv"
+        _write_plan_csv(collision_path, collisions, run_id, mode)
+        paths["target_collisions_csv"] = collision_path
+
     if report_duplicate_candidates and duplicate_groups:
         duplicate_path = output_dir / f"duplicate_recording_candidates_{run_id}.csv"
         write_duplicate_candidates(duplicate_path, duplicate_groups, run_id, mode)
@@ -187,7 +207,7 @@ def _write_plan_csv(path: Path, plans: list[PlanResult], run_id: str, mode: str)
         writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
         writer.writeheader()
         for plan in plans:
-            writer.writerow(plan_to_row(plan, run_id, mode))
+            writer.writerow(csv_safe_mapping(plan_to_row(plan, run_id, mode)))
 
 
 def write_name_consistency_reports(
@@ -372,7 +392,7 @@ def _write_dict_rows(path: Path, rows: list[dict[str, Any]], fields: list[str]) 
     with atomic_text_writer(path, encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(csv_safe_mapping(row) for row in rows)
 
 
 def write_scan_coverage(coverage: ScanCoverage, output_dir: Path, run_id: str) -> dict[str, Path]:
@@ -411,7 +431,7 @@ def write_scan_coverage(coverage: ScanCoverage, output_dir: Path, run_id: str) -
     with atomic_text_writer(csv_path, encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(["metric", "value"])
-        writer.writerows(flat_rows)
+        writer.writerows([[csv_safe_cell(cell) for cell in row] for row in flat_rows])
     paths["scan_coverage_csv"] = csv_path
 
     if coverage.directory_errors:
@@ -419,7 +439,7 @@ def write_scan_coverage(coverage: ScanCoverage, output_dir: Path, run_id: str) -
         with atomic_text_writer(error_path, encoding="utf-8-sig", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=["path", "error"])
             writer.writeheader()
-            writer.writerows(coverage.directory_errors)
+            writer.writerows(csv_safe_mapping(row) for row in coverage.directory_errors)
         paths["scan_path_errors_csv"] = error_path
     return paths
 
@@ -447,6 +467,9 @@ def needs_review(plan: PlanResult, review_confidence: float) -> bool:
         "source_changed_skipped",
         "metadata_verification_failed",
         "embedded_metadata_write_failed",
+        "metadata_writer_unavailable",
+        "write_readiness_blocked",
+        "target_collision_review_only",
     }:
         return True
     return False
@@ -477,7 +500,7 @@ def write_duplicate_candidates(path: Path, groups: list[tuple[str, str, list[Pla
         writer.writeheader()
         for identifier_type, identifier, items in groups:
             for plan in items:
-                writer.writerow({
+                writer.writerow(csv_safe_mapping({
                     "run_id": run_id,
                     "mode": mode,
                     "identifier_type": identifier_type,
@@ -488,7 +511,7 @@ def write_duplicate_candidates(path: Path, groups: list[tuple[str, str, list[Pla
                     "title": plan.match.title or "",
                     "confidence": f"{plan.match.confidence:.1f}",
                     "status": plan.status,
-                })
+                }))
 
 
 def find_acoustic_fingerprint_groups(plans: list[PlanResult]) -> list[tuple[str, int, list[PlanResult]]]:
@@ -522,7 +545,7 @@ def write_acoustic_duplicate_clusters(
         writer.writeheader()
         for digest, duration, items in groups:
             for plan in items:
-                writer.writerow({
+                writer.writerow(csv_safe_mapping({
                     "run_id": run_id,
                     "mode": mode,
                     "fingerprint_sha256": digest,
@@ -535,7 +558,7 @@ def write_acoustic_duplicate_clusters(
                     "mb_recording_id": plan.match.musicbrainz_recording_id or "",
                     "confidence": f"{plan.match.confidence:.1f}",
                     "status": plan.status,
-                })
+                }))
 
 
 def build_summary(
@@ -551,6 +574,12 @@ def build_summary(
     genre_counts = Counter(plan.genre.main_genre for plan in plans if plan.genre)
     source_counts = Counter(plan.match.source for plan in plans)
     canonicalization_counts = Counter(plan.match.canonicalization_status for plan in plans)
+    all_errors = [
+        {"path": str(plan.media.path), "status": plan.status, "error": plan.error or plan.media.scan_error}
+        for plan in plans
+        if plan.error or plan.media.scan_error
+    ]
+    included_errors = all_errors[:100]
     return {
         "schema": "MediaTaggerBot.summary.v5",
         "asset_metadata": {"schema": ASSET_METADATA_SCHEMA, "project_slug": PROJECT_SLUG, "run_manifest_expected": True},
@@ -577,6 +606,8 @@ def build_summary(
         "source_changed_skip_count": sum(1 for plan in plans if plan.status == "source_changed_skipped"),
         "metadata_verification_failure_count": sum(1 for plan in plans if plan.status == "metadata_verification_failed"),
         "embedded_metadata_write_failure_count": sum(1 for plan in plans if plan.status == "embedded_metadata_write_failed"),
+        "metadata_writer_unavailable_count": sum(1 for plan in plans if plan.status == "metadata_writer_unavailable"),
+        "target_collision_review_count": sum(1 for plan in plans if "canonical_target_collision" in plan.match.apply_blockers),
         "scan_error_count": sum(1 for plan in plans if plan.status == "scan_error"),
         "apply_failure_count": sum(1 for plan in plans if plan.status == "apply_failed"),
         "per_file_processing_failure_count": sum(1 for plan in plans if plan.status == "processing_failed"),
@@ -595,11 +626,11 @@ def build_summary(
         "source_counts": dict(source_counts),
         "canonicalization_counts": dict(canonicalization_counts),
         "scan_coverage": _compact_coverage(scan_coverage),
-        "errors": [
-            {"path": str(plan.media.path), "error": plan.error or plan.media.scan_error}
-            for plan in plans
-            if plan.error or plan.media.scan_error
-        ][:100],
+        "errors_total": len(all_errors),
+        "errors_included": len(included_errors),
+        "errors_omitted": max(0, len(all_errors) - len(included_errors)),
+        "error_status_counts": dict(Counter(item["status"] for item in all_errors)),
+        "errors": included_errors,
     }
 
 
@@ -663,4 +694,4 @@ def write_rollback_csv(path: Path, records: list[dict[str, Any]]) -> None:
     with atomic_text_writer(path, encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
-        writer.writerows(records)
+        writer.writerows(csv_safe_mapping(row) for row in records)

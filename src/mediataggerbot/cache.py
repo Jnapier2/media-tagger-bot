@@ -41,6 +41,9 @@ class JsonCache:
             "write_errors": 0,
             "optimize_open_errors": 0,
             "optimize_close_errors": 0,
+            "pruned_rows": 0,
+            "prune_errors": 0,
+            "checkpoint_errors": 0,
         }
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,6 +114,14 @@ class JsonCache:
         if self.ttl_seconds > 0 and time.time() - float(created) > self.ttl_seconds:
             self.stats["expired"] += 1
             self.stats["misses"] += 1
+            try:
+                self.conn.execute(
+                    "DELETE FROM cache WHERE namespace=? AND cache_key=?", (namespace, key)
+                )
+                self.conn.commit()
+                self.stats["pruned_rows"] += 1
+            except sqlite3.Error:
+                self.stats["prune_errors"] += 1
             return None
         try:
             decoded = json.loads(payload)
@@ -159,14 +170,38 @@ class JsonCache:
         if self.conn is not None:
             try:
                 if not self.disabled:
+                    self._prune_expired_bounded()
                     try:
                         self.conn.execute("PRAGMA optimize")
                     except sqlite3.Error:
                         self.stats["optimize_close_errors"] += 1
+                    try:
+                        self.conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                    except sqlite3.Error:
+                        self.stats["checkpoint_errors"] += 1
                 self.conn.close()
             except sqlite3.Error:
                 pass
             self.conn = None
+
+    def _prune_expired_bounded(self, chunk_size: int = 5000, max_chunks: int = 4) -> None:
+        if self.conn is None or self.disabled or self.ttl_seconds <= 0:
+            return
+        cutoff = time.time() - self.ttl_seconds
+        try:
+            for _index in range(max(1, int(max_chunks))):
+                cursor = self.conn.execute(
+                    "DELETE FROM cache WHERE rowid IN "
+                    "(SELECT rowid FROM cache WHERE created < ? LIMIT ?)",
+                    (cutoff, max(1, int(chunk_size))),
+                )
+                deleted = max(0, int(cursor.rowcount if cursor.rowcount is not None else 0))
+                self.stats["pruned_rows"] += deleted
+                if deleted < chunk_size:
+                    break
+            self.conn.commit()
+        except sqlite3.Error:
+            self.stats["prune_errors"] += 1
 
     def _quarantine_database_files(self) -> list[str]:
         stamp = time.strftime("%Y%m%d_%H%M%S", time.gmtime())

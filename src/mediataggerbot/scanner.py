@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import hashlib
 from collections import Counter
 from pathlib import Path
 from typing import Any, Callable
@@ -201,6 +202,8 @@ def scan_media_file(
     stat_result = path.stat()
     rel_path = safe_relpath(path, root)
     modified_ns = getattr(stat_result, "st_mtime_ns", None)
+    changed_ns = getattr(stat_result, "st_ctime_ns", None)
+    file_id = getattr(stat_result, "st_ino", None)
     cached = load_inventory_cache(
         inventory_cache,
         path=path,
@@ -208,6 +211,8 @@ def scan_media_file(
         extension=ext,
         size_bytes=stat_result.st_size,
         modified_ns=modified_ns,
+        changed_ns=changed_ns,
+        file_id=file_id,
         relative_depth=relative_depth,
         media_kind=media_kind,
     )
@@ -219,11 +224,15 @@ def scan_media_file(
         extension=ext,
         size_bytes=stat_result.st_size,
         modified_ns=modified_ns,
+        changed_ns=changed_ns,
+        file_id=file_id,
         relative_depth=relative_depth,
         media_kind=media_kind,
     )
     try:
         tag_summary = read_existing_tags(path)
+        if tag_summary.get("_parse_error"):
+            item.scan_error = str(tag_summary.get("_parse_error"))
         item.existing_artist = tag_summary.get("artist")
         item.existing_title = tag_summary.get("title")
         item.existing_album = tag_summary.get("album")
@@ -250,7 +259,10 @@ def scan_media_file(
     except Exception as exc:
         item.scan_error = str(exc)
         LOG.warning("Scan failed for %s: %s", path, exc)
-    store_inventory_cache(inventory_cache, item)
+    # A parser/probe failure is not a successful blank inventory and must not be
+    # replayed from cache on every later run.
+    if not item.scan_error:
+        store_inventory_cache(inventory_cache, item)
     return item
 
 
@@ -321,8 +333,9 @@ def read_existing_tags(path: Path) -> dict[str, Any]:
     result: dict[str, Any] = {}
     try:
         media = MutagenFile(str(path), easy=False)
-    except Exception:
+    except Exception as exc:
         media = None
+        result["_parse_error"] = f"{type(exc).__name__}: {exc}"
 
     tags: Any = None
     if media is not None:
@@ -335,8 +348,10 @@ def read_existing_tags(path: Path) -> dict[str, Any]:
         # still verifies the exact durable metadata frames the bot just wrote.
         try:
             tags = ID3(path)
-        except Exception:
+        except Exception as exc:
             tags = None
+            if "_parse_error" not in result:
+                result["_parse_error"] = f"{type(exc).__name__}: {exc}"
     if not tags:
         return result
 
@@ -431,7 +446,7 @@ def _stringify_tag_value(value: Any) -> str:
         return ""
     data = getattr(value, "data", None)
     if isinstance(data, (bytes, bytearray)):
-        decoded = _decode_bytes(data)
+        decoded = _decode_bytes_bounded(data)
         if decoded:
             return decoded
     text = getattr(value, "text", None)
@@ -442,7 +457,7 @@ def _stringify_tag_value(value: Any) -> str:
     if isinstance(value, (list, tuple)):
         return _first_nonempty(value)
     if isinstance(value, (bytes, bytearray)):
-        return _decode_bytes(value)
+        return _decode_bytes_bounded(value)
     return str(value)
 
 
@@ -466,6 +481,13 @@ def _decode_bytes(value: bytes | bytearray) -> str:
     return bytes(value).hex()
 
 
+def _decode_bytes_bounded(value: bytes | bytearray, max_bytes: int = 4096) -> str:
+    raw = bytes(value)
+    if len(raw) > max_bytes:
+        return f"<binary bytes={len(raw)} sha256={hashlib.sha256(raw).hexdigest()}>"
+    return _decode_bytes(raw)
+
+
 def _normalize_tag_key(value: str) -> str:
     replacements = {
         "©nam": "title",
@@ -486,11 +508,32 @@ def _first_flat(flat: dict[str, str], *keys: str) -> str | None:
         value = flat.get(normalized)
         if value:
             return value
-    # MP4 freeform keys include a com.apple.iTunes namespace prefix.  Suffix
-    # matching lets the bot reliably reread its own custom provenance fields.
+    # MP4 freeform keys include a com.apple.iTunes namespace prefix. Suffix
+    # matching is allowed only inside that recognized namespace and only for
+    # approved identity/provenance aliases. Broad suffix matching can otherwise
+    # map albumartist->artist, albumtitle->title, or subgenre->genre.
+    approved_suffixes = {
+        "mediataggerbotsubgenre",
+        "musicbrainzrecordingid",
+        "musicbrainztrackid",
+        "musicbrainzartistid",
+        "musicbrainzartistids",
+        "musicbrainzreleaseid",
+        "musicbrainzalbumid",
+        "musicbrainzreleasegroupid",
+        "acoustidid",
+        "mediataggerbotsource",
+        "mediataggerbotconfidence",
+        "mediataggerbotversion",
+        "mediataggerbotappliedutc",
+        "mediataggerbotsourceartistcredit",
+        "mediataggerbotcanonicalizationstatus",
+    }
     for normalized in normalized_keys:
+        if normalized not in approved_suffixes:
+            continue
         for actual_key, value in flat.items():
-            if value and actual_key.endswith(normalized):
+            if value and actual_key.startswith("comappleitunes") and actual_key.endswith(normalized):
                 return value
     return None
 

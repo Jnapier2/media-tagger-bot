@@ -50,6 +50,31 @@ def resolve_user_path(project_root: Path, raw: str | Path | None, *, project_rel
     return (project_root / path) if project_relative else path
 
 
+
+
+def synchronized_runtime_hint(path: Path) -> dict[str, Any]:
+    """Return an advisory-only warning for common synchronized-folder roots."""
+    normalized = str(path).replace("\\", "/").casefold()
+    providers = {
+        "onedrive": "OneDrive",
+        "dropbox": "Dropbox",
+        "google drive": "Google Drive",
+        "googledrive": "Google Drive",
+        "icloud": "iCloud Drive",
+        "syncthing": "Syncthing",
+    }
+    detected = next((label for token, label in providers.items() if token in normalized), "")
+    return {
+        "detected": bool(detected),
+        "provider_hint": detected,
+        "advisory_only": True,
+        "summary": (
+            "Use an independent local project copy on each computer; synchronized folders are source/handoff/archive, not shared live runtime."
+            if detected
+            else "No common synchronized-folder marker detected in the project path."
+        ),
+    }
+
 def build_path_status(config: Any) -> dict[str, Any]:
     raw_media_root = str(config.get("paths.media_root", "") or "").strip()
     media_root = config.media_root
@@ -96,13 +121,20 @@ def build_path_status(config: Any) -> dict[str, Any]:
             media_inside_project = not media_equals_project
         except (ValueError, OSError):
             pass
-    portability_ok = not stale_absolute_findings and all(item.get("exists") for item in runtime_status.values())
+    media_target_ready = bool(raw_media_root and media_is_dir and not media_equals_project)
+    portability_ok = (
+        not stale_absolute_findings
+        and all(item.get("exists") for item in runtime_status.values())
+        and media_target_ready
+    )
+    sync_hint = synchronized_runtime_hint(config.project_root)
     return {
         "schema": "MediaTaggerBot.path_status.v1",
         "project_root": str(config.project_root),
         "config_path": str(config.config_path),
         "install_mode": "portable_project_folder",
         "repair_available": True,
+        "synchronized_runtime_warning": sync_hint,
         "root_relationship": {
             "media_root_equals_project_root": media_equals_project,
             "project_root_is_inside_media_root": project_inside_media,
@@ -123,7 +155,17 @@ def build_path_status(config: Any) -> dict[str, Any]:
         "stale_absolute_path_findings": stale_absolute_findings,
         "portability_check": {
             "status": "pass" if portability_ok else "warning",
-            "summary": "Project-owned folders are local and media root is reachable." if portability_ok else "One or more configured paths may be stale or missing.",
+            "summary": (
+                "Project-owned folders are local and media root is reachable."
+                if portability_ok
+                else (
+                    "Media root is not set." if not raw_media_root
+                    else (
+                        "Media root must not equal the bot project folder." if media_equals_project
+                        else "One or more configured paths may be stale or missing."
+                    )
+                )
+            ),
         },
     }
 
@@ -359,7 +401,7 @@ def build_input_assurance(config: Any) -> dict[str, Any]:
             "confirmed_exists": media_exists,
             "confirmed_is_directory": media_is_dir,
             "status": "confirmed" if media_is_dir else ("not_set" if not cleaned_media_root else "needs_user_path_update"),
-            "recommended_fix": "Use BAT menu option 8 Set media root, or pass --root for a one-run override." if not media_is_dir else "none",
+            "recommended_fix": "Use Advanced > Set media root, or pass --root for a one-run override." if not media_is_dir else "none",
         },
         "runtime_dirs": {
             "logs_dir": {"mapped_to": str(config.logs_dir), "confirmed_exists": config.logs_dir.exists()},
@@ -394,7 +436,7 @@ def write_repair_report(
             "Repair/check is idempotent and never changes media files.",
             "Exact obsolete launcher filenames may be moved into archive/legacy_launchers with checksum evidence; they are never deleted.",
             "A narrowly recognized unescaped Windows media_root line may be repaired only after a timestamped config backup.",
-            "Use BAT option 8 Set media root to change paths.media_root without hand-editing TOML.",
+            "Use Advanced > Set media root to change paths.media_root without hand-editing TOML.",
             "No media files are scanned, renamed, deleted, or retagged by repair mode.",
         ],
     }
