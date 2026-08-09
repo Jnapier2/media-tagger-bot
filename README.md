@@ -30,9 +30,10 @@ A runtime identity failure blocks configuration and credential loading, authenti
 ## Dependencies
 
 - Python 3.11–3.14
-- `requests==2.32.5`
+- `requests==2.33.0`
 - `mutagen==1.47.0`
-- `pytest==9.0.2` for tests
+- `pytest==9.0.3` for tests
+- `setuptools==83.0.0` for the isolated build backend
 - FFprobe is optional and used only when available
 
 The exact runtime transitive set is recorded in `requirements.lock.txt`; the public repository does not bundle third-party wheels or executables. Third-party packages retain their own licenses.
@@ -59,6 +60,10 @@ Private operating counts, media-library contents, credentials, support exports, 
 - Matching evidence is advisory until reviewed; uncertain files remain held rather than forced into a match.
 - Public source and CI do not claim every filesystem, codec, provider, or physical Windows environment has been exercised.
 - The repository is source code, not a signed Windows installer.
+
+## Portfolio and rights
+
+[Portfolio](https://jerry-napier-portfolio.netlify.app/) · [GitHub profile](https://github.com/Jnapier2)
 
 Copyright © 2026 Gateway Information Group LLC. All rights reserved.
 

@@ -19,7 +19,7 @@ def test_public_source_sbom_covers_locked_runtime_dependencies() -> None:
     assert sbom["version"] == "0.5.9"
     components = {item["name"]: item["version"] for item in sbom["components"]}
     for name, version in {
-        "requests": "2.32.5",
+        "requests": "2.33.0",
         "mutagen": "1.47.0",
         "charset-normalizer": "3.4.9",
         "idna": "3.18",
@@ -27,6 +27,8 @@ def test_public_source_sbom_covers_locked_runtime_dependencies() -> None:
         "certifi": "2026.6.17",
     }.items():
         assert components[name] == version
+    assert components["pytest"] == "9.0.3"
+    assert components["setuptools"] == "83.0.0"
     assert sbom["distribution"].startswith("source-only")
     assert not (ROOT / "wheels").exists()
 
