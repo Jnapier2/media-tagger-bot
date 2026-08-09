@@ -560,9 +560,9 @@ def run_set_root(config: AppConfig, new_root: str, run_id: str, log_path: Path) 
     if result.get("rebuilt_from_example"):
         print("NOTICE: The prior config had unrelated TOML damage, so a clean example was used; custom settings remain in the backup.")
     print(f"Saved TOML value: {result.get('toml_representation', '')}")
-    print(f"Exists: {summary['path_status']['media_root']['exists']} is_dir={summary['path_status']['media_root']['is_dir']}")
-    print(f"Set-root report: {out_path}")
-    print(f"Diagnostics ZIP: {diag}")
+    print("Media root validation completed.")
+    print("Set-root report written to the project exports directory.")
+    print("Diagnostics package written to the project exports directory.")
     print(f"Log: {log_path}")
     if updated.validation_errors:
         print("Set-root completed, but the remaining config has semantic errors that block processing:")
