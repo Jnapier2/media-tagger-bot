@@ -277,12 +277,16 @@ def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
 
 
 def find_project_root(start: Path | None = None) -> Path:
-    start = (start or Path(__file__)).resolve()
-    candidates = [start] + list(start.parents)
-    for candidate in candidates:
-        if (candidate / "Start_MediaTaggerBot.bat").exists() or (candidate / "config" / "config.example.toml").exists():
+    """Resolve the package root from the launcher/source anchor, never the caller CWD."""
+    anchor = (start or Path(__file__)).resolve()
+    first = anchor if anchor.is_dir() else anchor.parent
+    for candidate in [first] + list(first.parents):
+        if (candidate / "Start_MediaTaggerBot.bat").is_file() or (candidate / "config" / "config.example.toml").is_file():
             return candidate
-    return Path.cwd().resolve()
+    raise RuntimeError(
+        "MediaTaggerBot project root could not be resolved from the canonical "
+        "launcher or package source tree"
+    )
 
 
 def resolve_project_relative(project_root: Path, raw: str | Path) -> Path:

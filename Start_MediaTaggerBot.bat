@@ -156,7 +156,7 @@ goto advanced_menu
 :header
 echo ===============================================
 echo  MediaTaggerBot v0.5.9
-echo  Build MTB-0.5.9-PUBLIC-20260808-01
+echo  Build MTB-0.5.9-PUBLIC-20260809-02
 echo  Pre-auth package integrity + crash-safe metadata runtime
 echo ===============================================
 echo Project: %PROJECT_ROOT%
@@ -201,7 +201,7 @@ if exist "%PROJECT_ROOT%\Launch_MediaTaggerBot.ps1" set "LEGACY_PS1=yes_ignored"
 > "%LOG_FILE%" echo ==================================================
 >> "%LOG_FILE%" echo MediaTaggerBot BAT run transcript
 >> "%LOG_FILE%" echo Version: v0.5.9
->> "%LOG_FILE%" echo BuildID: MTB-0.5.9-PUBLIC-20260808-01
+>> "%LOG_FILE%" echo BuildID: MTB-0.5.9-PUBLIC-20260809-02
 >> "%LOG_FILE%" echo Started: %DATE% %TIME%
 >> "%LOG_FILE%" echo ProjectRoot: %PROJECT_ROOT%
 >> "%LOG_FILE%" echo Mode: %MODE%
@@ -340,7 +340,7 @@ exit /b %PY_EXIT%
 :set_launcher_environment
 set "MEDIATAGGERBOT_LAUNCHER_KIND=bat_menu"
 set "MEDIATAGGERBOT_LAUNCHER_VERSION=0.5.9"
-set "MEDIATAGGERBOT_LAUNCHER_BUILD_ID=MTB-0.5.9-PUBLIC-20260808-01"
+set "MEDIATAGGERBOT_LAUNCHER_BUILD_ID=MTB-0.5.9-PUBLIC-20260809-02"
 set "MEDIATAGGERBOT_LAUNCHER_PROJECT_ROOT=%PROJECT_ROOT%"
 set "MEDIATAGGERBOT_BATCH_LOG=%LOG_FILE%"
 exit /b 0

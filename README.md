@@ -68,3 +68,7 @@ Private operating counts, media-library contents, credentials, support exports, 
 Copyright © 2026 Gateway Information Group LLC. All rights reserved.
 
 This notice does not create or replace a software license. Third-party components retain their respective notices and licenses.
+
+## Execution identity and project-local outputs
+
+`Start_MediaTaggerBot.bat` is the stable, unversioned, project-qualified Windows entrypoint. It resolves the project root from its own location and delegates to `python -m mediataggerbot`. Runtime-owned configuration, logs, state, temporary files, exports, diagnostics, reports, caches, and backups remain under that project root. The user-selected media library is the only normal external data root and is validated separately. A cross-working-directory regression test prevents the caller's current directory from becoming project authority.
