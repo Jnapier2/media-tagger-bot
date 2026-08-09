@@ -1,1 +1,0 @@
-Transient CI authorization trigger. This file is deleted in the next commit.
