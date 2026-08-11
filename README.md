@@ -6,7 +6,7 @@ MediaTaggerBot is a local-first Windows utility for reviewing, matching, tagging
 
 ## What changed in v0.5.9
 
-- Adds the v2.17.5 runtime release-identity and managed-file integrity gate.
+- Uses the current v2.17.6 delivery baseline while retaining the v2.17.5 runtime release-identity and managed-file integrity gate.
 - Verifies the running package ID, version, build ID, `VERSION.txt`, `MANIFEST.json`, `PACKAGE_METADATA.json`, and every immutable `package_managed=true` file before loading runtime configuration or credentials.
 - Fails closed on mixed or stale release files while retaining local status, logs, recovery guidance, and a bounded diagnostic export.
 - Preserves complete-scan, confidence, ambiguity, dry-run, journal, readback, and rollback controls.

@@ -24,7 +24,7 @@ def _allow_test_release_identity(main_module, monkeypatch) -> None:
             "package_verified_count": 1,
             "mismatch_count": 0,
             "runtime_version": "v0.5.9",
-            "runtime_build_id": "MTB-0.5.9-PUBLIC-20260809-02",
+            "runtime_build_id": "MTB-0.5.9-PUBLIC-20260810-03",
             "mismatches": [],
         },
     )

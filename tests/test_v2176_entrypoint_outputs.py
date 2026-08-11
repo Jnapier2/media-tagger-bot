@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,9 @@ def test_execution_and_output_metadata_is_v2176_aligned() -> None:
     metadata = json.loads((ROOT / "PACKAGE_METADATA.json").read_text(encoding="utf-8"))
     execution = metadata["execution_identity"]
     outputs = metadata["project_local_outputs"]
+    assert "source_baseline_sha256" not in metadata
+    assert metadata["source_baseline_commit_hash_algorithm"] == "git-sha1"
+    assert re.fullmatch(r"[0-9a-f]{40}", metadata["source_baseline_commit_sha"])
     assert execution["namespace"] == "MediaTaggerBot"
     assert execution["canonical_entrypoint"] == "Start_MediaTaggerBot.bat"
     assert execution["entrypoint_is_stable_unversioned_project_qualified"] is True
