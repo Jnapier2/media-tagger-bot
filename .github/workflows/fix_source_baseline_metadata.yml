@@ -37,6 +37,26 @@ jobs:
             requirements.lock.txt
             requirements-test.txt
 
+      - name: Preserve Windows launcher line endings in the repair script
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          path = Path('.github/scripts/fix_source_baseline_metadata.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''def write_text(path: Path, text: str) -> None:
+              path.write_text(text, encoding="utf-8", newline="\\n")
+          '''
+          new = '''def write_text(path: Path, text: str) -> None:
+              normalized = text.replace("\\r\\n", "\\n").replace("\\r", "\\n")
+              newline = "\\r\\n" if path.suffix.lower() in {".bat", ".cmd", ".ps1"} else "\\n"
+              path.write_text(normalized, encoding="utf-8", newline=newline)
+          '''
+          if old not in text:
+              raise SystemExit('Expected write_text function was not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+          '@ | python -
+
       - name: Apply the bounded metadata repair
         run: python .github/scripts/fix_source_baseline_metadata.py
 
