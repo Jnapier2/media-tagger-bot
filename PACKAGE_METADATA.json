@@ -4,8 +4,8 @@
   "canonical_project_name": "Music File Renaming Bot",
   "product_alias": "MediaTaggerBot",
   "version": "v0.5.9",
-  "build_id": "MTB-0.5.9-PUBLIC-20260809-02",
-  "release_date": "2026-08-08",
+  "build_id": "MTB-0.5.9-PUBLIC-20260810-03",
+  "release_date": "2026-08-10",
   "distribution": "sanitized public source tree",
   "source_package_sha256": "7b359401997725ee93e2249f41fe6ed26fe7e74ca044141a87215956965b15ac",
   "parameter_baseline": "chatgpt_new_thread_parameters_v2.17.6_canonical_entrypoints_project_local_outputs",
@@ -40,9 +40,8 @@
     "internal handoff material"
   ],
   "canonical_thread_title": "Music File Renaming Bot — Runtime Identity & Project-Local Outputs",
-  "generated_cdt": "2026-08-09 CDT / America/Chicago",
-  "source_baseline": "MediaTaggerBot v0.5.9 public source commit 46d117514bf4e8a529127549b23d37a0eb0fcf12",
-  "source_baseline_sha256": "46d117514bf4e8a529127549b23d37a0eb0fcf12",
+  "generated_cdt": "2026-08-10 CDT / America/Chicago",
+  "source_baseline": "MediaTaggerBot v0.5.9 public source commit 79e95bffce4a18cefd1b91b6b709f67dc45ca22c",
   "execution_identity": {
     "namespace": "MediaTaggerBot",
     "canonical_entrypoint": "Start_MediaTaggerBot.bat",
@@ -72,5 +71,8 @@
     ],
     "external_media_root_is_explicit_validated_user_input": true,
     "cross_working_directory_test": "tests/test_v2176_entrypoint_outputs.py"
-  }
+  },
+  "source_baseline_commit_sha": "79e95bffce4a18cefd1b91b6b709f67dc45ca22c",
+  "source_baseline_commit_hash_algorithm": "git-sha1",
+  "metadata_correction": "The prior source_baseline_sha256 key held a 40-character Git commit SHA-1. This build uses an explicit commit-SHA field and algorithm label."
 }
