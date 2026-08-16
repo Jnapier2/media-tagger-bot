@@ -1,5 +1,5 @@
 @echo off
-rem Asset metadata: ID MTB-LAUNCHER-BAT; class launcher; role primary-launcher; version v0.5.9; status current; sensitivity project-internal; tags media-tagger-bot,windows,bat.
+rem Asset metadata: ID MTB-LAUNCHER-BAT; class launcher; role primary-launcher; version v0.5.9; status current; sensitivity public-source; tags media-tagger-bot,windows,bat.
 setlocal EnableExtensions DisableDelayedExpansion
 
 title MediaTaggerBot v0.5.9 BAT Menu

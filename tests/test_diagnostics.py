@@ -36,7 +36,7 @@ def test_diagnostics_is_export20_and_includes_scan_state(tmp_path: Path):
         assert "state/last_journal_reconciliation.json" in names
         assert "RELEASE_NOTES.md" in names
         assert "CHANGELOG.md" in names
-        assert "KNOWN_GOOD_STATE.md" in names
+        assert "docs/VERIFIED_BASELINE.md" in names
         # Inactive lock/journal details may be compacted into the mandatory summary so
         # higher-value transfer/manifest/changelog evidence fits inside Export20.
         summary = json.loads(archive.read("diagnostic_summary.json"))

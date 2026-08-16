@@ -19,7 +19,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 ASSET_METADATA_SCHEMA = "asset-metadata-v1"
 PROJECT_SLUG = "media-tagger-bot"
-DEFAULT_SENSITIVITY = "project-internal"
+DEFAULT_SENSITIVITY = "public-source"
 RUNTIME_HASH_MAX_BYTES = 64_000_000
 RUNTIME_MANIFEST_FIELDS = [
     "asset_id", "path", "title", "purpose", "asset_class", "role", "format",

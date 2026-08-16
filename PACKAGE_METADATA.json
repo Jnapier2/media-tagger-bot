@@ -6,10 +6,8 @@
   "version": "v0.5.9",
   "build_id": "MTB-0.5.9-PUBLIC-20260810-03",
   "release_date": "2026-08-10",
-  "distribution": "sanitized public source tree",
+  "distribution": "public source tree",
   "source_package_sha256": "7b359401997725ee93e2249f41fe6ed26fe7e74ca044141a87215956965b15ac",
-  "parameter_baseline": "chatgpt_new_thread_parameters_v2.17.6_canonical_entrypoints_project_local_outputs",
-  "parameter_package_sha256": "5dd39656afa5e8bcd0159e5ffa163d4de92a9ad4cb05c26aa63acf424ffe371f",
   "runtime_identity_gate": {
     "schema": "MediaTaggerBot.runtime_identity_status.v1",
     "control_files": [
@@ -39,7 +37,6 @@
     "bundled wheels",
     "internal handoff material"
   ],
-  "canonical_thread_title": "Music File Renaming Bot — Runtime Identity & Project-Local Outputs",
   "generated_cdt": "2026-08-10 CDT / America/Chicago",
   "source_baseline": "MediaTaggerBot v0.5.9 public source commit 79e95bffce4a18cefd1b91b6b709f67dc45ca22c",
   "execution_identity": {
