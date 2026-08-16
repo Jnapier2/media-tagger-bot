@@ -1,5 +1,5 @@
 # MediaTaggerBot config v0.5.9
-# Asset metadata: ID MTB-CONFIG-EXAMPLE; class configuration; role config-schema-example; version v0.5.9; status current; sensitivity project-internal; tags media-tagger-bot,config,portable.
+# Asset metadata: ID MTB-CONFIG-EXAMPLE; class configuration; role config-schema-example; version v0.5.9; status current; sensitivity public-source; tags media-tagger-bot,config,portable.
 # Copy this file to config.toml and edit media_root + optional API keys.
 
 [project]

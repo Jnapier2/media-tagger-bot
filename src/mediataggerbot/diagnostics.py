@@ -145,7 +145,7 @@ def build_environment_summary(config: AppConfig, run_id: str, mode: str) -> dict
         "asset_metadata_policy": {
             "schema": ASSET_METADATA_SCHEMA,
             "project_slug": PROJECT_SLUG,
-            "canonical_release_manifest": "MANIFEST.json + MANIFEST.csv",
+            "canonical_release_manifest": "MANIFEST.json",
             "runtime_manifest_pattern": "exports/<run_id>/ASSET_MANIFEST_<run_id>.json|csv",
             "key_asset_headers": True,
             "per_file_sidecars_required": False,
@@ -468,7 +468,7 @@ def _write_diagnostics_export_primary(
             "MANIFEST.json": 3,
             "PACKAGE_METADATA.json": 4,
             "CHANGELOG.md": 5,
-            "KNOWN_GOOD_STATE.md": 6,
+            "docs/VERIFIED_BASELINE.md": 6,
             f"OMISSION_COVERAGE_LEDGER_v{__version__}.md": 7,
             "ASSET_METADATA_POLICY.md": 8,
             "README_RUN_FIRST.md": 30,

@@ -6,8 +6,8 @@ MediaTaggerBot is a local-first Windows utility for reviewing, matching, tagging
 
 ## What changed in v0.5.9
 
-- Uses the current v2.17.6 delivery baseline while retaining the v2.17.5 runtime release-identity and managed-file integrity gate.
-- Verifies the running package ID, version, build ID, `VERSION.txt`, `MANIFEST.json`, `PACKAGE_METADATA.json`, and every immutable `package_managed=true` file before loading runtime configuration or credentials.
+- Uses a stable project-qualified entrypoint, a launcher-derived project root, and project-local outputs.
+- Verifies the package ID, version, build ID, `VERSION.txt`, `MANIFEST.json`, `PACKAGE_METADATA.json`, and every immutable `package_managed=true` file before loading runtime configuration or credentials.
 - Fails closed on mixed or stale release files while retaining local status, logs, recovery guidance, and a bounded diagnostic export.
 - Preserves complete-scan, confidence, ambiguity, dry-run, journal, readback, and rollback controls.
 - Keeps computer recognition informational and nonrestrictive; it cannot block launch, assign ownership, or require a cross-computer handoff.
@@ -48,7 +48,7 @@ py -3.13 -m pip check
 py -3.13 -m pytest -q
 ```
 
-The sanitized public-source tree was derived from the user-confirmed v0.5.9 release package with SHA-256:
+The public source tree was derived from the confirmed v0.5.9 release package with SHA-256:
 
 `7b359401997725ee93e2249f41fe6ed26fe7e74ca044141a87215956965b15ac`
 

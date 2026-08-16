@@ -491,7 +491,7 @@ def test_unowned_final_sidecar_blocks_before_metadata_or_rename(tmp_path: Path):
 def test_synchronized_project_path_warning_is_advisory_only():
     from mediataggerbot.pathing import synchronized_runtime_hint
 
-    hint = synchronized_runtime_hint(Path(r"C:\Users\User\OneDrive\Bots\MediaTaggerBot"))
+    hint = synchronized_runtime_hint(Path(r"C:\Profiles\Example\OneDrive\Bots\MediaTaggerBot"))
     assert hint["detected"] is True
     assert hint["provider_hint"] == "OneDrive"
     assert hint["advisory_only"] is True
@@ -535,4 +535,3 @@ def test_atomic_replace_retries_transient_permission_error(tmp_path, monkeypatch
 
     assert calls["count"] == 3
     assert destination.read_text(encoding="utf-8") == "new"
-
