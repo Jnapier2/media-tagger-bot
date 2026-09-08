@@ -29,7 +29,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def isolated_config(tmp_path: Path) -> AppConfig:
-    cfg = load_config(project_root=PROJECT_ROOT, config_path=PROJECT_ROOT / "config" / "config.toml")
+    cfg = load_config(project_root=tmp_path, config_path=PROJECT_ROOT / "config" / "config.example.toml")
     media_root = tmp_path / "Private Music Library"
     media_root.mkdir(parents=True, exist_ok=True)
     cfg.data["paths"].update(

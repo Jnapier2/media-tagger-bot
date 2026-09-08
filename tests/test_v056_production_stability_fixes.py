@@ -23,8 +23,8 @@ from mediataggerbot.utils import write_json_atomic
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def cfg(tmp_path: Path | None = None):
-    value = load_config(project_root=ROOT, config_path=ROOT / "config" / "config.toml")
+def cfg(tmp_path: Path):
+    value = load_config(project_root=tmp_path, config_path=ROOT / "config" / "config.example.toml")
     if tmp_path is not None:
         value.data["paths"]["media_root"] = str(tmp_path)
         value.data["paths"]["logs_dir"] = str(tmp_path / "logs")

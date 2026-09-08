@@ -25,7 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def isolated_config(tmp_path: Path):
-    cfg = load_config(project_root=PROJECT_ROOT, config_path=PROJECT_ROOT / "config" / "config.toml")
+    cfg = load_config(project_root=tmp_path, config_path=PROJECT_ROOT / "config" / "config.example.toml")
     media_root = tmp_path / "Media"
     media_root.mkdir(parents=True)
     cfg.data["paths"].update(
