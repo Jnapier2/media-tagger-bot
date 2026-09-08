@@ -1,5 +1,9 @@
 # Release notes
 
+## Source maintenance - 2026-09-08
+
+Checkout metadata uses explicit line endings so release integrity checks agree across Git configurations. Test helpers use isolated temporary project roots to keep repeat runs independent. Source provenance retains the public version and artifact identity.
+
 MediaTaggerBot 0.5.9 strengthens the safeguards around automated media organization:
 
 - write modes require a complete recursive scan;
