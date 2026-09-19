@@ -4,6 +4,18 @@
 
 MediaTaggerBot is a local-first Windows utility for reviewing, matching, tagging, and safely renaming music files. It combines public metadata evidence with local file analysis, keeps uncertain matches visible for review, and records every applied change so it can be verified or rolled back.
 
+## Unpublished maintenance candidate
+
+Build `MTB-0.5.9-PUBLIC-20260918-BOOTPRIV1` is a complete source candidate based on the published v0.5.9 tree. It is not a GitHub release or an installed-build promotion.
+
+The startup-failure support export now includes only bounded, typed summaries of cached identity evidence. It excludes original control files, log bodies, and unrestricted error text. Entries named after control files contain explanatory summaries, not replacement package files; never install them as configuration. A startup identity failure still blocks configuration loading, authenticated work, and media changes.
+
+The dependency verifier now expects Requests 2.33.0, matching the existing dependency lock, project metadata and SBOM. No dependency pin or installation policy changed.
+
+This minimal export requires same-filesystem hard-link support for atomic publication without replacing existing evidence. Unsupported filesystems fail closed, with no raw-content or external-output fallback. Native Windows filesystem behavior and endpoint-security acceptance remain unverified. Existing local status files and logs remain private; only the support ZIP boundary is changed. Do not infer comprehensive hostile-writer isolation or authenticity from local hashes.
+
+Use a fresh folder for candidate evaluation. Do not copy individual changed modules into a sealed working installation. Preserve the original verified package and its user data separately.
+
 ## What changed in v0.5.9
 
 - Uses a stable project-qualified entrypoint, a launcher-derived project root, and project-local outputs.

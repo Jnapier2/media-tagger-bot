@@ -4,9 +4,9 @@
   "canonical_project_name": "Music File Renaming Bot",
   "product_alias": "MediaTaggerBot",
   "version": "v0.5.9",
-  "build_id": "MTB-0.5.9-PUBLIC-20260810-03",
-  "release_date": "2026-08-10",
-  "distribution": "public source tree",
+  "build_id": "MTB-0.5.9-PUBLIC-20260918-BOOTPRIV1",
+  "release_date": "2026-09-18",
+  "distribution": "public-source derivative; unpublished review candidate",
   "source_package_sha256": "7b359401997725ee93e2249f41fe6ed26fe7e74ca044141a87215956965b15ac",
   "runtime_identity_gate": {
     "schema": "MediaTaggerBot.runtime_identity_status.v1",
@@ -37,8 +37,8 @@
     "bundled wheels",
     "internal handoff material"
   ],
-  "generated_cdt": "2026-08-10 CDT / America/Chicago",
-  "source_baseline": "MediaTaggerBot v0.5.9 public source commit 79e95bffce4a18cefd1b91b6b709f67dc45ca22c",
+  "generated_cdt": "2026-09-18 CDT / America/Chicago",
+  "source_baseline": "MediaTaggerBot v0.5.9 public source commit ac2789befd8e36cc5cd994c4c785537b574f4850",
   "execution_identity": {
     "namespace": "MediaTaggerBot",
     "canonical_entrypoint": "Start_MediaTaggerBot.bat",
@@ -69,7 +69,19 @@
     "external_media_root_is_explicit_validated_user_input": true,
     "cross_working_directory_test": "tests/test_v2176_entrypoint_outputs.py"
   },
-  "source_baseline_commit_sha": "79e95bffce4a18cefd1b91b6b709f67dc45ca22c",
+  "source_baseline_commit_sha": "ac2789befd8e36cc5cd994c4c785537b574f4850",
   "source_baseline_commit_hash_algorithm": "git-sha1",
-  "metadata_correction": "The prior source_baseline_sha256 key held a 40-character Git commit SHA-1. This build uses an explicit commit-SHA field and algorithm label."
+  "metadata_correction": "The prior source_baseline_sha256 key held a 40-character Git commit SHA-1. This build uses an explicit commit-SHA field and algorithm label.",
+  "status": "unpublished-candidate",
+  "bootstrap_support_export": {
+    "content": "bounded typed summaries from cached identity evidence only",
+    "raw_controls_logs_error_bodies_included": false,
+    "managed_file_reverification_during_export": false,
+    "entry_limit": 20,
+    "current_entry_count": 5,
+    "payload_byte_limit": 65536,
+    "publication": "same-filesystem hard-link publication without overwrite; fail closed if unsupported",
+    "trust_boundary": "caller must establish verifier trust; export is not authentication of its own code",
+    "native_windows_filesystem_acceptance": "not run for this candidate"
+  }
 }

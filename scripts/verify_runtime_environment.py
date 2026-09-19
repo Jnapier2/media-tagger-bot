@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 EXPECTED = {
-    "requests": "2.32.5",
+    "requests": "2.33.0",
     "mutagen": "1.47.0",
     "charset-normalizer": "3.4.9",
     "idna": "3.18",
