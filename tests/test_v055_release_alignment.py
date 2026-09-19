@@ -67,3 +67,56 @@ def test_runtime_asset_manifest_includes_safe_advisory_computer_context(monkeypa
     assert context["cross_computer_handoff_required"] is False
     assert context["shared_lease_or_write_fence"] is False
     assert "hostname" not in context
+
+
+def test_environment_verifier_matches_existing_lock_and_sbom() -> None:
+    import re
+    import tomllib
+    from scripts import verify_runtime_environment as verifier
+
+    lock = (ROOT / "requirements.lock.txt").read_text(encoding="utf-8")
+    locked = dict(re.findall(r"^([A-Za-z0-9_-]+)==([^\s]+)", lock, re.MULTILINE))
+    sbom = json.loads((ROOT / "DEPENDENCY_SBOM.json").read_text(encoding="utf-8"))
+    runtime = {item["name"]: item["version"] for item in sbom["components"]
+               if item["relationship"] in {"direct-runtime", "transitive-runtime"}}
+    assert verifier.EXPECTED == locked == runtime
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    for requirement in project["project"]["dependencies"]:
+        name, version = requirement.split("==")
+        assert verifier.EXPECTED[name] == version
+
+
+def _synthetic_distribution(tmp_path, version):
+    import base64
+    data = b"synthetic dependency record, not installed library code\n"
+    fixture = tmp_path / "synthetic_record.dat"
+    fixture.write_bytes(data)
+    digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).decode().rstrip("=")
+    class DistributionFixture:
+        def read_text(self, name):
+            assert name == "RECORD"
+            return f"synthetic_record.dat,sha256={digest},{len(data)}\n"
+        def locate_file(self, name):
+            assert name == "synthetic_record.dat"
+            return fixture
+    result = DistributionFixture()
+    result.version = version
+    return result
+
+
+def test_environment_accepts_current_locked_requests_record_fixture(tmp_path, monkeypatch) -> None:
+    from scripts import verify_runtime_environment as verifier
+    fixture = _synthetic_distribution(tmp_path, "2.33.0")
+    monkeypatch.setattr(verifier.metadata, "distribution", lambda _name: fixture)
+    result = verifier.verify_distribution("requests", verifier.EXPECTED["requests"])
+    assert result["version"] == "2.33.0"
+    assert result["record_hashes_checked"] == 1
+
+
+def test_environment_rejects_previous_requests_record_fixture(tmp_path, monkeypatch) -> None:
+    import pytest
+    from scripts import verify_runtime_environment as verifier
+    fixture = _synthetic_distribution(tmp_path, "2.32.5")
+    monkeypatch.setattr(verifier.metadata, "distribution", lambda _name: fixture)
+    with pytest.raises(RuntimeError, match="expected"):
+        verifier.verify_distribution("requests", verifier.EXPECTED["requests"])
