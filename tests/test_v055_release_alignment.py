@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from copy import deepcopy
 from pathlib import Path
 
@@ -10,6 +11,14 @@ from mediataggerbot.asset_metadata import write_run_asset_manifest
 from mediataggerbot.config import AppConfig, DEFAULT_CONFIG
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_runtime_attestation_accepts_the_locked_dependency_versions() -> None:
+    from scripts.verify_runtime_environment import EXPECTED
+
+    lock_text = (ROOT / "requirements.lock.txt").read_text(encoding="utf-8")
+    locked = dict(re.findall(r"^([A-Za-z0-9_.-]+)==([^\s]+)", lock_text, flags=re.MULTILINE))
+    assert EXPECTED == locked
 
 
 def test_public_source_sbom_covers_locked_runtime_dependencies() -> None:
@@ -23,7 +32,7 @@ def test_public_source_sbom_covers_locked_runtime_dependencies() -> None:
         "mutagen": "1.47.0",
         "charset-normalizer": "3.4.9",
         "idna": "3.18",
-        "urllib3": "2.7.0",
+        "urllib3": "2.8.0",
         "certifi": "2026.6.17",
     }.items():
         assert components[name] == version

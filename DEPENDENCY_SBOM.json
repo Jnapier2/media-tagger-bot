@@ -35,7 +35,7 @@
     },
     {
       "name": "urllib3",
-      "version": "2.7.0",
+      "version": "2.8.0",
       "relationship": "transitive-runtime",
       "license": "MIT",
       "source": "https://pypi.org/project/urllib3/"

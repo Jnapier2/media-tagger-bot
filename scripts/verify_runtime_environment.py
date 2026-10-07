@@ -18,11 +18,11 @@ from pathlib import Path
 from typing import Any
 
 EXPECTED = {
-    "requests": "2.32.5",
+    "requests": "2.33.0",
     "mutagen": "1.47.0",
     "charset-normalizer": "3.4.9",
     "idna": "3.18",
-    "urllib3": "2.7.0",
+    "urllib3": "2.8.0",
     "certifi": "2026.6.17",
 }
 SUPPORTED_PYTHON = {(3, 11), (3, 12), (3, 13), (3, 14)}
