@@ -336,6 +336,134 @@ def read_runtime_identity_status(project_root: Path) -> dict[str, Any]:
         return {}
 
 
+# The startup-failure path cannot trust the original control or log contents.
+# Keep only bounded, typed fields from evidence already collected by the gate.
+_IDENTITY_EXPORT_MAX_BYTES = 65_536
+_IDENTITY_EXPORT_MAX_MISMATCHES = 64
+_IDENTITY_MISMATCH_TYPES = frozenset({
+    "missing_control_file", "unreadable_control_file", "invalid_control_file",
+    "package_id_mismatch", "version_mismatch", "build_id_mismatch",
+    "manifest_files_not_list", "manifest_record_not_object", "unsafe_managed_path",
+    "duplicate_manifest_path", "missing_or_invalid_package_managed_flag",
+    "missing_managed_file", "managed_path_out_of_root", "managed_file_not_regular",
+    "invalid_expected_size", "managed_size_mismatch", "invalid_expected_sha256",
+    "managed_hash_read_error", "managed_sha256_mismatch", "runtime_identity_evidence_write_failed", "unclassified_mismatch",
+})
+_IDENTITY_COUNT_FIELDS = (
+    "manifest_record_count", "package_managed_count", "package_unmanaged_count",
+    "package_verified_count", "mismatch_count",
+)
+_IDENTITY_BOOL_FIELDS = (
+    "authenticated_activity_permitted", "config_or_credentials_loaded_before_gate",
+    "authentication_prevented_until_pass",
+)
+
+
+def _identity_export_summary(status: dict[str, Any]) -> dict[str, Any]:
+    """Project cached evidence onto a small vocabulary; never copy free text."""
+    if type(status) is not dict:
+        raise ValueError("Bootstrap export requires a plain cached status object")
+    result: dict[str, Any] = {
+        "schema": "MediaTaggerBot.bootstrap_identity_summary.v1",
+        "package_id": PACKAGE_ID,
+        "evidence_scope": "cached_identity_report_not_a_new_verification",
+        "gate_result": status.get("gate_result") if status.get("gate_result") in ("PASS", "BLOCK") else "UNKNOWN",
+        "original_contents_included": False,
+        "control_file_hashes": {},
+        "mismatches": [],
+        "mismatches_omitted": 0,
+        "omitted_content": ["raw_control_files", "raw_log_bodies", "free_text_errors", "caller_run_and_mode_labels"],
+    }
+    for name in _IDENTITY_COUNT_FIELDS:
+        value = status.get(name)
+        result[name] = value if type(value) is int and 0 <= value <= 1_000_000 else None
+    for name in _IDENTITY_BOOL_FIELDS:
+        value = status.get(name)
+        result[name] = value if type(value) is bool else None
+    hashes = status.get("control_file_hashes")
+    if type(hashes) is dict:
+        for name in CONTROL_FILES:
+            value = hashes.get(name)
+            if type(value) is str and len(value) == 64 and _HEX64.fullmatch(value):
+                result["control_file_hashes"][name] = value.lower()
+    mismatches = status.get("mismatches")
+    if type(mismatches) is list:
+        result["mismatches_omitted"] = max(0, len(mismatches) - _IDENTITY_EXPORT_MAX_MISMATCHES)
+        for item in mismatches[:_IDENTITY_EXPORT_MAX_MISMATCHES]:
+            kind, source = "unclassified_mismatch", "managed_payload_or_unknown"
+            if type(item) is dict:
+                value = item.get("type")
+                if type(value) is str and value in _IDENTITY_MISMATCH_TYPES:
+                    kind = value
+                value = item.get("source", item.get("path"))
+                if type(value) is str and value in (*CONTROL_FILES, "running_code", "state/runtime_identity_status.json"):
+                    source = value
+            result["mismatches"].append({"type": kind, "source": source})
+    return result
+
+
+def _identity_export_payloads(status: dict[str, Any]) -> list[tuple[str, bytes]]:
+    summary = _identity_export_summary(status)
+    # Defense in depth: no extensible object or raw-text field reaches staging.
+    expected = {"schema", "package_id", "evidence_scope", "gate_result", "original_contents_included",
+                "control_file_hashes", "mismatches", "mismatches_omitted", "omitted_content",
+                *_IDENTITY_COUNT_FIELDS, *_IDENTITY_BOOL_FIELDS}
+    if set(summary) != expected or summary["original_contents_included"] is not False:
+        raise ValueError("Bootstrap export privacy validation failed")
+    if summary != _identity_export_summary(status):
+        raise ValueError("Bootstrap export cached evidence changed during serialization")
+    summary_data = (json.dumps(summary, indent=2, ensure_ascii=True, allow_nan=False) + "\n").encode("utf-8")
+    recovery = (
+        "MediaTaggerBot minimal bootstrap evidence.\n"
+        "This archive summarizes a cached identity report; it does not rerun verification.\n"
+        "No original control file, log body, caller label, or free-text error is included.\n"
+        "VERSION.txt, MANIFEST.json and PACKAGE_METADATA.json entries are sanitized summaries, not original files.\n"
+        "Do not install these summaries as replacement package files.\n"
+        "Unknown or omitted evidence is not a PASS or proof of pre-authentication ordering.\n"
+        "Preserve the original failure evidence privately. Re-extract a separately verified complete release into a fresh local folder.\n"
+        "Do not mix source, launchers or control files across releases. Run Preflight after an authorized repair.\n"
+    ).encode("utf-8")
+    payloads = [("runtime_identity_status.json", summary_data), ("IDENTITY_GATE_RECOVERY.txt", recovery)]
+    for name in CONTROL_FILES:
+        control = {
+            "evidence_kind": "sanitized_cached_control_summary_not_original_file",
+            "control_file": name,
+            "original_bytes_included": False,
+            "file_read_during_export": False,
+            "cached_sha256": summary["control_file_hashes"].get(name),
+        }
+        payloads.append((name, (json.dumps(control, indent=2, allow_nan=False) + "\n").encode("utf-8")))
+    if len(payloads) > 20 or sum(len(data) for _, data in payloads) > _IDENTITY_EXPORT_MAX_BYTES:
+        raise ValueError("Bootstrap export exceeds its bounded payload budget")
+    return payloads
+
+
+def _identity_export_directory(root: Path, child: str | None = None) -> Path:
+    """Validate fixed output directories without following linked parents."""
+    import stat
+
+    def checked_directory(path: Path) -> None:
+        info = path.lstat()
+        if (stat.S_ISLNK(info.st_mode)
+                or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+                or not stat.S_ISDIR(info.st_mode)):
+            raise ValueError("Bootstrap output requires regular, non-linked project directories")
+
+    for parent in reversed((root, *root.parents)):
+        checked_directory(parent)
+    if child is None:
+        return root
+    if child not in {"diagnostics", "temp"}:
+        raise ValueError("Unsupported bootstrap output directory")
+    target = root / child
+    if os.path.lexists(target):
+        checked_directory(target)
+    else:
+        target.mkdir(exist_ok=False)
+        checked_directory(target)
+    return target
+
+
 def write_identity_gate_support_export(
     project_root: Path,
     run_id: str,
@@ -343,68 +471,71 @@ def write_identity_gate_support_export(
     status: dict[str, Any],
     log_path: Path | None = None,
 ) -> Path:
-    """Create a compact pre-auth Support Export20 without reading runtime config."""
-    root = Path(project_root).resolve()
-    diagnostics_dir = root / "diagnostics"
-    temp_dir = root / "temp"
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    temp_dir.mkdir(parents=True, exist_ok=True)
-    final_zip = diagnostics_dir / f"MediaTaggerBot_DIAGNOSTIC_{run_id}_IDENTITY_BLOCK.zip"
+    """Publish bounded cached bootstrap evidence, never rejected files or logs.
 
-    candidates: list[tuple[str, bytes]] = [
-        (
-            "runtime_identity_status.json",
-            (json.dumps(status, indent=2, ensure_ascii=False) + "\n").encode("utf-8"),
-        )
-    ]
-    recovery = (
-        "MediaTaggerBot runtime identity gate blocked startup.\n"
-        "No runtime config, credentials, authenticated API activity, or media mutation was started.\n"
-        "Recovery: preserve this diagnostic, then re-extract the complete verified release ZIP into a fresh local folder.\n"
-        "Do not copy old source, launchers, manifests, VERSION.txt, or PACKAGE_METADATA.json into the repaired release.\n"
-        "After repair, rerun Preflight; the identity gate must report PASS before authenticated processing.\n"
-    ).encode("utf-8")
-    candidates.append(("IDENTITY_GATE_RECOVERY.txt", recovery))
+    The signature is retained for callers. Untrusted run/mode labels and log_path
+    are deliberately not read or serialized. Output uses an internal timestamp
+    and random suffix instead. The caller must establish verifier trust; this
+    function does not authenticate its own code or assert that a gate ran.
+    """
+    import secrets
+    import shutil
+    import stat
 
-    for name in CONTROL_FILES:
-        path = root / name
-        if path.is_file() and path.stat().st_size <= 2_000_000:
-            candidates.append((name, path.read_bytes()))
-    for name in ("docs/VERIFIED_BASELINE.md", "RUNBOOK.md", "RELEASE_NOTES.md"):
-        path = root / name
-        if path.is_file() and path.stat().st_size <= 500_000:
-            candidates.append((name, path.read_bytes()))
-    if log_path and Path(log_path).is_file():
-        data = Path(log_path).read_bytes()[-200_000:]
-        try:
-            text = data.decode("utf-8", errors="replace")
-            text = text.replace(str(root), "<PROJECT_ROOT>")
-            text = text.replace(str(Path.home()), "<USER_HOME>")
-            data = text.encode("utf-8")
-        except Exception:
-            data = b"Bootstrap log excerpt unavailable after privacy sanitization.\n"
-        candidates.append(("current_log_tail.txt", data))
-    candidates = candidates[:20]
-
-    fd, temp_name = tempfile.mkstemp(prefix="identity_export_", suffix=".zip", dir=str(temp_dir))
-    os.close(fd)
-    temp_zip = Path(temp_name)
-    try:
-        with zipfile.ZipFile(temp_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-            for name, data in sorted(candidates, key=lambda item: item[0].casefold()):
-                archive.writestr(name, data)
-        with zipfile.ZipFile(temp_zip) as archive:
-            if len(archive.infolist()) > 20:
-                raise RuntimeError("Support Export20 exceeded 20 entries")
-            bad = archive.testzip()
-            if bad:
-                raise RuntimeError(f"Support Export20 integrity failure at {bad}")
-        os.replace(temp_zip, final_zip)
-    finally:
-        if temp_zip.exists():
-            temp_zip.unlink(missing_ok=True)
-
-    digest = _sha256(final_zip)
+    # Privacy checks happen before staging or creating any output directory.
+    payloads = _identity_export_payloads(status)
+    root = Path(project_root).absolute()
+    _identity_export_directory(root)
+    if shutil.disk_usage(root).free < 4 * _IDENTITY_EXPORT_MAX_BYTES:
+        raise OSError("Insufficient project-local space for bootstrap evidence")
+    diagnostics_dir = _identity_export_directory(root, "diagnostics")
+    temp_dir = _identity_export_directory(root, "temp")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    final_zip = diagnostics_dir / f"MediaTaggerBot_DIAGNOSTIC_{stamp}_{secrets.token_hex(6)}_IDENTITY_BLOCK.zip"
     sidecar = final_zip.with_suffix(final_zip.suffix + ".sha256.txt")
-    sidecar.write_text(f"{digest}  {final_zip.name}\n", encoding="utf-8")
+    fd, temp_name = tempfile.mkstemp(prefix="identity_export_", suffix=".zip", dir=temp_dir)
+    temp_zip = Path(temp_name)
+    temp_sidecar: Path | None = None
+    try:
+        with os.fdopen(fd, "w+b") as handle:
+            with zipfile.ZipFile(handle, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+                for name, data in sorted(payloads, key=lambda item: item[0].casefold()):
+                    info = zipfile.ZipInfo(name)
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    info.external_attr = (stat.S_IFREG | 0o600) << 16
+                    archive.writestr(info, data)
+            handle.flush()
+        with zipfile.ZipFile(temp_zip) as archive:
+            members = archive.infolist()
+            if ({item.filename for item in members} != {name for name, _ in payloads}
+                    or len(members) != len(payloads)
+                    or sum(item.file_size for item in members) > _IDENTITY_EXPORT_MAX_BYTES
+                    or any(not stat.S_ISREG(item.external_attr >> 16) for item in members)
+                    or archive.testzip() is not None):
+                raise RuntimeError("Bootstrap export integrity validation failed")
+        if temp_zip.stat().st_size > 2 * _IDENTITY_EXPORT_MAX_BYTES:
+            raise RuntimeError("Bootstrap archive exceeds its bounded file budget")
+        digest = _sha256(temp_zip)  # Only the completed diagnostic ZIP is hashed here.
+        side_fd, side_name = tempfile.mkstemp(prefix="identity_checksum_", suffix=".tmp", dir=temp_dir)
+        temp_sidecar = Path(side_name)
+        with os.fdopen(side_fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(f"{digest}  {final_zip.name}\n")
+            handle.flush()
+        _identity_export_directory(root, "diagnostics")
+        _identity_export_directory(root, "temp")
+        # Hard-link publication is atomic and refuses an existing destination.
+        # Unsupported filesystems fail closed: no overwrite or external fallback.
+        os.link(temp_zip, final_zip)
+        try:
+            os.link(temp_sidecar, sidecar)
+        except OSError:
+            # Preserve an already published evidence ZIP, even if its companion failed.
+            raise RuntimeError("Bootstrap archive preserved; checksum publication failed") from None
+    finally:
+        for temporary in (temp_zip, temp_sidecar):
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass  # Never delete other evidence or replace the primary error.
     return final_zip

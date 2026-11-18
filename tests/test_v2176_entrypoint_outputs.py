@@ -38,6 +38,10 @@ def test_execution_and_output_metadata_is_v2176_aligned() -> None:
     assert "source_baseline_sha256" not in metadata
     assert metadata["source_baseline_commit_hash_algorithm"] == "git-sha1"
     assert re.fullmatch(r"[0-9a-f]{40}", metadata["source_baseline_commit_sha"])
+    manifest = json.loads((ROOT / "MANIFEST.json").read_text(encoding="utf-8"))
+    assert "source_baseline_sha256" not in manifest
+    assert manifest["source_baseline_commit_hash_algorithm"] == "git-sha1"
+    assert manifest["source_baseline_commit_sha"] == metadata["source_baseline_commit_sha"]
     assert execution["namespace"] == "MediaTaggerBot"
     assert execution["canonical_entrypoint"] == "Start_MediaTaggerBot.bat"
     assert execution["entrypoint_is_stable_unversioned_project_qualified"] is True

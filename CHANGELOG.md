@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.5.9 build MTB-0.5.9-PUBLIC-20260918-BOOTPRIV1 — unpublished candidate
+
+- Replaced raw-file startup-failure export with five bounded cached-evidence summary entries. Rejected control bytes, log bodies, and arbitrary error strings are excluded before staging.
+- Preserved the startup BLOCK decision, configuration/authentication ordering, media-processing code, existing launcher name, and all existing test methods.
+- Added summary-privacy, publication-failure and actual startup-path regressions. Output uses project-local staging and no-overwrite hard-link publication; unsupported filesystems fail closed.
+- Corrected the runtime verifier's Requests expectation from 2.32.5 to the already-pinned 2.33.0. Added lock/SBOM parity and synthetic distribution-RECORD acceptance/rejection coverage; dependencies are not upgraded.
+- Reconciled candidate identity and managed hashes. Corrected the canonical manifest's 40-character Git commit identifier field so it is no longer labeled SHA-256; retained original provenance in the untouched baseline.
+- Source and extracted-package test results are recorded separately from exact pinned-dependency, hosted CI, physical Windows and Norton acceptance. Those latter checks remain outstanding.
+
 ## v0.5.9 build MTB-0.5.9-PUBLIC-20260810-03
 
 - Corrected the source-baseline metadata key so a Git commit SHA-1 is no longer labeled SHA-256.
