@@ -23,7 +23,7 @@ EXPECTED = {
     "charset-normalizer": "3.4.9",
     "idna": "3.18",
     "urllib3": "2.8.0",
-    "certifi": "2026.6.17",
+    "certifi": "2026.10.23",
 }
 SUPPORTED_PYTHON = {(3, 11), (3, 12), (3, 13), (3, 14)}
 LOCK_HASH_RE = re.compile(r"--hash=sha256:([0-9a-fA-F]{64})")
