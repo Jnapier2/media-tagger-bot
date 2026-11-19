@@ -33,7 +33,7 @@ def test_public_source_sbom_covers_locked_runtime_dependencies() -> None:
         "charset-normalizer": "3.4.9",
         "idna": "3.18",
         "urllib3": "2.8.0",
-        "certifi": "2026.6.17",
+        "certifi": "2026.10.23",
     }.items():
         assert components[name] == version
     assert components["pytest"] == "9.0.3"
