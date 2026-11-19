@@ -45,7 +45,7 @@ A runtime identity failure blocks configuration and credential loading, authenti
 - `requests==2.33.0`
 - `mutagen==1.47.0`
 - `pytest==9.0.3` for tests
-- `setuptools==83.0.0` for the isolated build backend
+- `setuptools==84.1.0` for the isolated build backend
 - FFprobe is optional and used only when available
 
 The exact runtime transitive set is recorded in `requirements.lock.txt`; the public repository does not bundle third-party wheels or executables. Third-party packages retain their own licenses.

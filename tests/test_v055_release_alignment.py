@@ -37,7 +37,7 @@ def test_public_source_sbom_covers_locked_runtime_dependencies() -> None:
     }.items():
         assert components[name] == version
     assert components["pytest"] == "9.0.3"
-    assert components["setuptools"] == "83.0.0"
+    assert components["setuptools"] == "84.1.0"
     assert sbom["distribution"].startswith("source-only")
     assert not (ROOT / "wheels").exists()
 

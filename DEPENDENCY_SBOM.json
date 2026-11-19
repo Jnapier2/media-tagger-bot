@@ -56,7 +56,7 @@
     },
     {
       "name": "setuptools",
-      "version": "83.0.0",
+      "version": "84.1.0",
       "relationship": "build",
       "license": "MIT",
       "source": "https://pypi.org/project/setuptools/"
