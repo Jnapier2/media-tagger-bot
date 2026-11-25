@@ -12,7 +12,7 @@ The startup-failure support export now includes only bounded, typed summaries of
 
 The dependency verifier now expects Requests 2.33.0, matching the existing dependency lock, project metadata and SBOM. No dependency pin or installation policy changed.
 
-This minimal export requires same-filesystem hard-link support for atomic publication without replacing existing evidence. Unsupported filesystems fail closed, with no raw-content or external-output fallback. Native Windows filesystem behavior and endpoint-security acceptance remain unverified. Existing local status files and logs remain private; only the support ZIP boundary is changed. Do not infer comprehensive hostile-writer isolation or authenticity from local hashes.
+This minimal export requires same-filesystem hard-link support for atomic publication without replacing existing evidence. Unsupported filesystems fail closed, with no raw-content or external-output fallback. On November 24, 2026, the [startup-failure export checks](https://github.com/Jnapier2/media-tagger-bot/blob/5802a83b203b1b14a09f52d31344293d158b4f9f/tests/test_bootstrap_export_privacy.py) passed on Windows 11 using synthetic inputs on a local NTFS volume. The checks verified the ZIP and its checksum, excluded raw input, and preserved an existing export when a filename was occupied. Targeted endpoint-security acceptance remains pending. Existing local status files and logs remain private; only the support ZIP boundary is changed. Do not infer comprehensive hostile-writer isolation or authenticity from local hashes.
 
 Use a fresh folder for candidate evaluation. Do not copy individual changed modules into a sealed working installation. Preserve the original verified package and its user data separately.
 
